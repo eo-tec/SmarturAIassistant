@@ -14,7 +14,7 @@ function App() {
 
   // Hook de OpenAI Chat API
   const chat = useOpenAIChat({
-    backendUrl: import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080',
+    backendUrl: import.meta.env.VITE_BACKEND_URL, // En producción se usa el mismo dominio
     voice: 'shimmer', // Voces disponibles: alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar
     instructions: getDefaultHotelInstructions(),
     onStateChange: (chatState: ChatState) => {

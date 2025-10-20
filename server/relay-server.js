@@ -1,13 +1,16 @@
 // Servidor backend para OpenAI Chat Completions API con soporte de audio
 // Este servidor maneja la autenticación y hace requests HTTP a OpenAI Responses API
+// También sirve el frontend estático en producción
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const OpenAI = require('openai');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Configurar OpenAI client
 const openai = new OpenAI({
@@ -125,6 +128,21 @@ Tu función es ayudar a los huéspedes con:
 Siempre responde en español de forma clara, concisa y amigable. Si no sabes algo, ofrece alternativas o sugiere contactar con recepción.
 
 Mantén un tono profesional pero cercano, como si fueras un conserje experimentado del hotel.`;
+}
+
+// Servir frontend estático en producción
+if (NODE_ENV === 'production') {
+  const distPath = path.join(__dirname, 'dist');
+
+  console.log('📂 Serving static files from:', distPath);
+
+  // Servir archivos estáticos
+  app.use(express.static(distPath));
+
+  // SPA fallback - todas las rutas que no sean API van al index.html
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
 }
 
 // Iniciar servidor

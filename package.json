@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:full": "npm run build && npm run copy:dist",
+    "copy:dist": "rm -rf server/dist && cp -r dist server/dist",
     "lint": "eslint .",
     "preview": "vite preview"
   },

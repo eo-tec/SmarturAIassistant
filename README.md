@@ -245,6 +245,157 @@ Monitorea tu uso en: https://platform.openai.com/usage
 - [VAD Web Library](https://github.com/ricky0123/vad)
 - [Three.js Documentation](https://threejs.org/docs/)
 
+## Deployment a Producción (Dokploy)
+
+### Opción 1: Deployment con Dockerfile (Recomendado)
+
+1. **Sube tu código a un repositorio Git** (GitHub, GitLab, etc.)
+
+2. **En Dokploy, crea una nueva aplicación**:
+   - Selecciona "Create Application"
+   - Elige "Git Repository"
+   - Conecta tu repositorio
+   - Selecciona la rama (ej: `main`)
+
+3. **Configura el deployment**:
+   - **Build Method**: Dockerfile
+   - **Dockerfile Path**: `./Dockerfile` (en la raíz)
+   - **Port**: 8080
+
+4. **Configura las variables de entorno**:
+   ```
+   OPENAI_API_KEY=sk-proj-tu-api-key-aqui
+   NODE_ENV=production
+   PORT=8080
+   ```
+
+5. **Deploy**:
+   - Haz clic en "Deploy"
+   - Dokploy construirá la imagen y la desplegará
+   - Asigna un dominio en la configuración de Dokploy
+
+### Opción 2: Deployment con Docker Compose
+
+1. En Dokploy, sube el archivo `docker-compose.yml`
+
+2. Configura las variables de entorno en Dokploy
+
+3. Deploy directo desde el compose
+
+### Health Check
+
+Tu aplicación tiene un endpoint de health check configurado:
+- **URL**: `https://tu-dominio.com/health`
+- **Response**: `{ "status": "ok", "model": "gpt-4o-audio-preview" }`
+
+Configura el health check en Dokploy:
+- **Path**: `/health`
+- **Port**: 8080
+- **Interval**: 30s
+
+### SSL/HTTPS
+
+Dokploy maneja automáticamente los certificados SSL con Let's Encrypt. Solo necesitas:
+1. Configurar tu dominio en Dokploy
+2. Apuntar el DNS a tu servidor Dokploy
+3. Dokploy generará y renovará los certificados automáticamente
+
+### Variables de Entorno Requeridas
+
+| Variable | Descripción | Requerido |
+|----------|-------------|-----------|
+| `OPENAI_API_KEY` | Tu API key de OpenAI | ✅ Sí |
+| `NODE_ENV` | Entorno de ejecución | ❌ No (default: production) |
+| `PORT` | Puerto del servidor | ❌ No (default: 8080) |
+
+### Build Local con Docker
+
+Para probar el deployment localmente:
+
+```bash
+# Build de la imagen
+docker build -t aiassistant .
+
+# Run del container
+docker run -p 8080:8080 \
+  -e OPENAI_API_KEY=sk-proj-... \
+  -e NODE_ENV=production \
+  aiassistant
+```
+
+O usando docker-compose:
+
+```bash
+# Asegúrate de tener el .env configurado en server/
+docker-compose up -d
+```
+
+### Logs y Debugging
+
+En Dokploy puedes ver los logs en tiempo real:
+- Ve a tu aplicación
+- Haz clic en "Logs"
+- Filtra por errores o búsqueda
+
+Logs importantes a monitorear:
+- `🚀 Backend Server running on...` - Servidor iniciado
+- `🤖 Using model: gpt-4o-audio-preview` - Modelo configurado
+- `🔑 API Key configured: Yes` - API key detectada
+- `📂 Serving static files from:...` - Frontend servido correctamente
+
+### URLs en Producción
+
+Una vez desplegado, tu aplicación estará disponible en:
+- **Frontend**: `https://tu-dominio.com`
+- **API**: `https://tu-dominio.com/api/chat`
+- **Health**: `https://tu-dominio.com/health`
+
+Todo servido desde el mismo dominio, no hay problemas de CORS.
+
+### Actualización del Código
+
+Para actualizar tu aplicación:
+1. Haz commit y push a tu repositorio Git
+2. En Dokploy, haz clic en "Redeploy"
+3. Dokploy reconstruirá la imagen con los cambios
+4. Zero-downtime deployment automático
+
+### Costos
+
+**Hosting**:
+- Dokploy es gratis (self-hosted en tu VPS)
+- Solo pagas tu VPS (que ya tienes)
+
+**OpenAI API**:
+- Consulta precios en https://openai.com/api/pricing/
+- Monitorea uso en https://platform.openai.com/usage
+
+## Desarrollo Local
+
+### Modo Desarrollo Normal (sin Docker)
+
+```bash
+# Terminal 1: Frontend
+npm run dev
+
+# Terminal 2: Backend
+cd server
+npm run dev
+```
+
+### Modo Desarrollo con Docker
+
+```bash
+# Build y run
+docker-compose up --build
+
+# Solo run (si ya está build)
+docker-compose up
+
+# Detener
+docker-compose down
+```
+
 ## Licencia
 
 MIT

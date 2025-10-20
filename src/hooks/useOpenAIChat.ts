@@ -34,7 +34,9 @@ export const useOpenAIChat = (
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
   const stateRef = useRef<ChatState>('idle');
 
-  const backendUrl = config.backendUrl || 'http://localhost:8080';
+  // En producción, usar la misma URL (sin necesidad de VITE_BACKEND_URL)
+  // En desarrollo, usar localhost:8080
+  const backendUrl = config.backendUrl || (import.meta.env.VITE_BACKEND_URL || '');
 
   // Sync ref with state
   useEffect(() => {
