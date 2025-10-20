@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "build:full": "npm run build && npm run copy:dist",
     "copy:dist": "rm -rf server/dist && cp -r dist server/dist",
+    "start": "npm run build:full && cd server && npm ci --only=production && npm start",
     "lint": "eslint .",
     "preview": "vite preview"
   },
