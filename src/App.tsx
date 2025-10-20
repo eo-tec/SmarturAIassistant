@@ -1,32 +1,52 @@
 import { useState, useRef, useEffect } from 'react'
-import { useVoiceActivityDetection } from './hooks/useVoiceActivityDetection'
-import { useOpenAIChat, getDefaultHotelInstructions } from './hooks/useOpenAIChat'
+import { useMicrophoneStream } from './hooks/useMicrophoneStream'
+import { useOpenAIRealtime, type RealtimeState } from './hooks/useOpenAIRealtime'
 import OrbitalSystem from './OrbitalSystem.tsx'
 import './App.css'
 
 type AssistantState = 'idle' | 'listening' | 'thinking' | 'speaking'
-type ChatState = 'idle' | 'thinking' | 'speaking' | 'error'
+
+// Instrucciones por defecto para el asistente de hotel
+function getDefaultHotelInstructions(): string {
+  return `Eres un asistente virtual de hotel profesional, amable y servicial. Tu nombre es "Hotel Assistant".
+
+Tu función es ayudar a los huéspedes con:
+- Información sobre servicios del hotel (restaurante, spa, gimnasio, piscina)
+- Horarios de comidas y servicios
+- Reservas de mesas en el restaurante
+- Solicitudes de servicio a la habitación
+- Información turística local
+- Check-in y check-out
+- Servicios de conserjería
+
+Siempre responde en español de forma clara, concisa y amigable. Si no sabes algo, ofrece alternativas o sugiere contactar con recepción.
+
+Mantén un tono profesional pero cercano, como si fueras un conserje experimentado del hotel.`;
+}
 
 function App() {
   const [state, setState] = useState<AssistantState>('idle')
   const [isActive, setIsActive] = useState(false)
-  const chatRef = useRef<any>(null)
+  const realtimeRef = useRef<any>(null)
 
-  // Hook de OpenAI Chat API
-  const chat = useOpenAIChat({
-    backendUrl: import.meta.env.VITE_BACKEND_URL, // En producción se usa el mismo dominio
+  // Hook de OpenAI Realtime API
+  const realtime = useOpenAIRealtime({
     voice: 'shimmer', // Voces disponibles: alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar
     instructions: getDefaultHotelInstructions(),
-    onStateChange: (chatState: ChatState) => {
-      console.log('🔄 Chat state changed:', chatState)
+    onStateChange: (realtimeState: RealtimeState) => {
+      console.log('🔄 Realtime state changed:', realtimeState)
 
-      // Mapear estados de Chat a estados del asistente
-      switch (chatState) {
-        case 'idle':
-          // Solo cambiar a idle si no estamos escuchando
-          if (state !== 'listening') {
-            setState('idle')
-          }
+      // Mapear estados de Realtime a estados del asistente
+      switch (realtimeState) {
+        case 'disconnected':
+        case 'connected':
+          setState('idle')
+          break
+        case 'connecting':
+          setState('idle')
+          break
+        case 'listening':
+          setState('listening')
           break
         case 'thinking':
           setState('thinking')
@@ -41,44 +61,32 @@ function App() {
     },
   })
 
-  // Actualizar ref cuando cambie chat
+  // Actualizar ref cuando cambie realtime
   useEffect(() => {
-    chatRef.current = chat
-  }, [chat])
+    realtimeRef.current = realtime
+  }, [realtime])
 
-  // Hook de detección de voz
-  const vad = useVoiceActivityDetection({
-    onSpeechStart: () => {
-      console.log('🎤 Speech started')
-      setState('listening')
-    },
-    onSpeechEnd: async (audio) => {
-      console.log('🔇 Speech ended, audio length:', audio.length)
+  // Hook de stream de micrófono (sin VAD local, usa server VAD de OpenAI)
+  const microphone = useMicrophoneStream({
+    onAudioChunk: (audioChunk) => {
+      // Enviar cada chunk de audio a OpenAI
+      // El servidor VAD detectará automáticamente cuando hablas
+      const currentRealtime = realtimeRef.current
 
-      // Usar ref para obtener el estado actual
-      const currentChat = chatRef.current
-      console.log('🔍 Chat state:', currentChat?.state, 'isReady:', currentChat?.isReady)
-
-      if (currentChat && currentChat.isReady) {
-        console.log('📤 Sending audio to backend...')
-        try {
-          await currentChat.sendMessage(audio)
-        } catch (err) {
-          console.error('❌ Error sending audio:', err)
-          setState('idle')
-        }
-      } else {
-        console.warn('⚠️ Chat not ready, state:', currentChat?.state)
-        setState('idle')
+      if (currentRealtime && currentRealtime.isConnected) {
+        currentRealtime.sendAudio(audioChunk)
       }
     },
+    chunkIntervalMs: 100, // Enviar chunks cada 100ms
+    sampleRate: 24000, // OpenAI usa 24kHz
   })
 
   // Limpiar al desmontar
   useEffect(() => {
     return () => {
       if (isActive) {
-        vad.stopListening()
+        microphone.stopStreaming()
+        realtime.disconnect()
       }
     }
   }, [])
@@ -87,7 +95,8 @@ function App() {
     if (isActive) {
       // Detener asistente
       console.log('⏹️ Stopping assistant...')
-      vad.stopListening()
+      microphone.stopStreaming()
+      realtime.disconnect()
       setState('idle')
       setIsActive(false)
     } else {
@@ -95,9 +104,15 @@ function App() {
       console.log('▶️ Starting assistant...')
 
       try {
-        // Solo necesitamos iniciar VAD, no hay conexión que mantener
-        await vad.startListening()
-        console.log('✅ VAD started')
+        // 1. Conectar a OpenAI Realtime API via relay
+        console.log('📡 Connecting to OpenAI Realtime...')
+        await realtime.connect()
+        console.log('✅ Connected to Realtime API')
+
+        // 2. Iniciar stream de micrófono
+        // El server VAD de OpenAI detectará automáticamente la voz
+        await microphone.startStreaming()
+        console.log('✅ Microphone stream started')
 
         setState('idle')
         setIsActive(true)
@@ -118,15 +133,15 @@ function App() {
         <button
           className={`control-btn ${isActive ? 'active' : ''}`}
           onClick={toggleAssistant}
-          disabled={chat.state === 'error'}
+          disabled={realtime.state === 'error'}
           style={{
             marginBottom: '20px',
             width: '240px',
             fontSize: '16px',
-            backgroundColor: chat.state === 'error' ? '#999' : (isActive ? '#4CAF50' : '#f44336')
+            backgroundColor: realtime.state === 'error' ? '#999' : (isActive ? '#4CAF50' : '#f44336')
           }}
         >
-          {chat.state === 'error'
+          {realtime.state === 'error'
             ? '❌ Error de conexión'
             : isActive
             ? '⏹️ Detener Asistente'
@@ -136,10 +151,15 @@ function App() {
         {isActive && (
           <div style={{ marginBottom: '20px' }}>
             <p style={{ color: '#999', fontSize: '14px', marginBottom: '5px' }}>
-              Estado Chat: <strong>{chat.state}</strong>
+              Estado Realtime: <strong>{realtime.state}</strong>
             </p>
             <p style={{ color: '#999', fontSize: '14px', marginBottom: '5px' }}>
-              Estado VAD: {vad.vadState === 'speaking' ? '🎤 Hablando' : '👂 Escuchando'}
+              Micrófono: {microphone.isStreaming ? '🎤 Activo' : '⏸️ Inactivo'}
+              {microphone.isStreaming && microphone.audioLevel > 0.01 && (
+                <span style={{ marginLeft: '10px' }}>
+                  🔊 {(microphone.audioLevel * 100).toFixed(0)}%
+                </span>
+              )}
             </p>
             <p style={{ color: '#999', fontSize: '14px' }}>
               Estado visual: <strong>{state}</strong>
@@ -147,13 +167,13 @@ function App() {
           </div>
         )}
 
-        {chat.error && (
+        {realtime.error && (
           <div style={{ marginBottom: '20px', padding: '10px', backgroundColor: '#fee', borderRadius: '5px' }}>
             <p style={{ color: '#f44336', fontSize: '14px', marginBottom: '10px', fontWeight: 'bold' }}>
-              ❌ Error: {chat.error}
+              ❌ Error: {realtime.error}
             </p>
             <p style={{ color: '#666', fontSize: '12px' }}>
-              💡 Asegúrate de que el servidor backend esté corriendo en http://localhost:8080
+              💡 Asegúrate de que el servidor relay esté corriendo en http://localhost:8080
             </p>
           </div>
         )}
@@ -190,10 +210,13 @@ function App() {
 
         <div style={{ borderTop: '1px solid #ccc', paddingTop: '20px', marginTop: '20px' }}>
           <p style={{ color: '#666', fontSize: '11px', textAlign: 'center', lineHeight: '1.5' }}>
-            ⚠️ Asegúrate de iniciar el servidor backend: cd server && npm install && npm start
+            ⚠️ Servidor relay WebSocket: cd server && npm install && npm start
           </p>
           <p style={{ color: '#666', fontSize: '11px', textAlign: 'center', lineHeight: '1.5', marginTop: '5px' }}>
             🔑 Configura OPENAI_API_KEY en server/.env
+          </p>
+          <p style={{ color: '#666', fontSize: '11px', textAlign: 'center', lineHeight: '1.5', marginTop: '5px' }}>
+            🤖 Modelo: gpt-realtime-mini-2025-10-06 (con Server VAD)
           </p>
         </div>
       </div>

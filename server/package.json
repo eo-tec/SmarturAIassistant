@@ -1,7 +1,7 @@
 {
-  "name": "openai-chat-backend",
+  "name": "openai-realtime-relay",
   "version": "1.0.0",
-  "description": "Backend server for OpenAI Chat Completions API with audio support",
+  "description": "WebSocket relay server for OpenAI Realtime API",
   "main": "relay-server.js",
   "scripts": {
     "start": "NODE_ENV=production node relay-server.js",
@@ -11,6 +11,7 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
+    "ws": "^8.18.0",
     "openai": "^4.77.3",
     "dotenv": "^16.3.1"
   },

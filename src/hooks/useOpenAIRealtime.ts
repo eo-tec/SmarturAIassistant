@@ -11,8 +11,6 @@ export type RealtimeState =
   | 'error';
 
 interface UseOpenAIRealtimeConfig {
-  apiKey: string;
-  model?: string;
   voice?: 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse' | 'marin' | 'cedar';
   instructions?: string;
   onStateChange?: (state: RealtimeState) => void;
@@ -82,8 +80,8 @@ export const useOpenAIRealtime = (
   }, []);
 
   /**
-   * Conectar a OpenAI Realtime API usando WebSocket directo con autenticación
-   * IMPORTANTE: En producción, usar un servidor relay para no exponer la API key
+   * Conectar a OpenAI Realtime API a través del servidor relay WebSocket
+   * El servidor relay maneja la autenticación de forma segura
    */
   const connect = useCallback(async () => {
     try {
@@ -96,71 +94,35 @@ export const useOpenAIRealtime = (
         wsRef.current = null;
       }
 
-      // Determinar si usar servidor relay o conexión directa
-      const useRelayServer = true; // Cambiar a false para intentar conexión directa
+      // SIEMPRE usar servidor relay para mantener la API key segura
+      console.log('🔌 Connecting to OpenAI via relay server...');
+      console.log('📡 Using relay server for secure connection');
 
-      let ws: WebSocket;
+      const relayUrl = 'ws://localhost:8080';
+      console.log('🔗 Relay URL:', relayUrl);
 
-      if (useRelayServer) {
-        // OPCIÓN 1: Usar servidor relay (RECOMENDADO)
-        console.log('🔌 Connecting to OpenAI via relay server...');
-        console.log('📡 Using relay server for secure connection');
-
-        const relayUrl = 'ws://localhost:8080';
-        console.log('🔗 Relay URL:', relayUrl);
-
-        ws = new WebSocket(relayUrl);
-      } else {
-        // OPCIÓN 2: Conexión directa (puede fallar por restricciones de CORS)
-        const model = config.model || 'gpt-4o-realtime-preview-2024-12-17';
-
-        console.log('🔌 Connecting directly to OpenAI Realtime API...');
-        console.log('⚠️ WARNING: Direct connection from browser may fail');
-        console.log('📝 Using model:', model);
-
-        // Validar formato de API key
-        if (!config.apiKey.startsWith('sk-')) {
-          console.error('❌ Invalid API key format. Should start with sk-');
-          throw new Error('Invalid API key format');
-        }
-
-        const url = `wss://api.openai.com/v1/realtime?model=${model}`;
-        console.log('🔗 Connection URL:', url);
-
-        const protocols = [
-          `openai-insecure-api-key.${config.apiKey}`,
-          'openai-beta.realtime-v1'
-        ];
-
-        ws = new WebSocket(url, protocols);
-      }
+      const ws = new WebSocket(relayUrl);
 
       ws.addEventListener('open', () => {
-        console.log('✅ WebSocket connected');
+        console.log('✅ WebSocket connected to relay');
 
-        // Enviar configuración de sesión (formato GA)
+        // Enviar configuración de sesión (modelo gpt-realtime-mini-2025-10-06)
         const sessionConfig = {
           type: 'session.update',
           session: {
-            type: 'realtime',  // REQUERIDO en GA
-            model: 'gpt-realtime-mini-2025-10-06',
             modalities: ['text', 'audio'],
             instructions: config.instructions || getDefaultHotelInstructions(),
-            audio: {
-              input: { format: 'pcm16' },
-              output: {
-                format: 'pcm16',
-                voice: config.voice || 'shimmer'
-              }
-            },
+            voice: config.voice || 'shimmer',
+            input_audio_format: 'pcm16',
+            output_audio_format: 'pcm16',
             input_audio_transcription: {
               model: 'whisper-1',
             },
             turn_detection: {
               type: 'server_vad',
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 500,
+              threshold: 0.5,              // Sensibilidad balanceada
+              prefix_padding_ms: 500,      // Capturar 500ms antes de detectar voz
+              silence_duration_ms: 1200,   // Permitir pausas de ~1.2s sin cortar
             },
             temperature: 0.8,
           },
@@ -253,6 +215,8 @@ export const useOpenAIRealtime = (
 
   /**
    * Enviar audio a OpenAI (desde VAD)
+   * NOTA: NO hacemos commit manual porque usamos server VAD.
+   * OpenAI detecta automáticamente cuando dejaste de hablar y procesa el audio.
    */
   const sendAudio = useCallback((audioData: Float32Array) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -273,13 +237,8 @@ export const useOpenAIRealtime = (
       wsRef.current.send(JSON.stringify(appendEvent));
       console.log('📤 Sent audio chunk:', audioData.length, 'samples');
 
-      // Commit el buffer para que OpenAI lo procese
-      const commitEvent = {
-        type: 'input_audio_buffer.commit'
-      };
-
-      wsRef.current.send(JSON.stringify(commitEvent));
-      console.log('📤 Committed audio buffer for processing');
+      // NO hacer commit manual - el server VAD lo hace automáticamente
+      // cuando detecta que el usuario dejó de hablar (speech_stopped)
     } catch (err) {
       console.error('❌ Error sending audio:', err);
     }

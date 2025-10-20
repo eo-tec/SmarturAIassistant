@@ -1,158 +1,238 @@
-// Servidor backend para OpenAI Chat Completions API con soporte de audio
-// Este servidor maneja la autenticación y hace requests HTTP a OpenAI Responses API
-// También sirve el frontend estático en producción
+// WebSocket relay server for OpenAI Realtime API
+// Este servidor actúa como intermediario entre el cliente (navegador) y OpenAI
+// Mantiene la API key segura en el servidor y relay mensajes bidireccionales
 
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
-const OpenAI = require('openai');
+const { WebSocketServer } = require('ws');
+const WebSocket = require('ws');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// Configurar OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: '50mb' })); // Aumentar límite para audio en base64
+// Verificar que tenemos API key
+if (!process.env.OPENAI_API_KEY) {
+  console.error('❌ ERROR: OPENAI_API_KEY not found in environment variables!');
+  console.error('💡 Create a .env file with: OPENAI_API_KEY=sk-proj-...');
+  process.exit(1);
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'OpenAI Chat Completions Backend Server',
-    model: 'gpt-audio-mini-2025-10-06'
+    message: 'OpenAI Realtime API Relay Server',
+    model: 'gpt-realtime-mini-2025-10-06',
+    version: '1.0.0'
   });
 });
-
-// Chat endpoint - recibe audio y devuelve respuesta con audio
-app.post('/api/chat', async (req, res) => {
-  try {
-    const { audio, instructions, voice = 'shimmer' } = req.body;
-
-    if (!audio) {
-      return res.status(400).json({
-        error: 'Missing audio data'
-      });
-    }
-
-    console.log('📥 Received chat request');
-    console.log('📊 Audio length:', audio.length, 'chars (base64)');
-    console.log('🎤 Voice:', voice);
-
-    // Usar Chat Completions API con soporte de audio
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-audio-preview',
-      modalities: ['text', 'audio'],
-      audio: { voice: voice, format: 'wav' },
-      messages: [
-        {
-          role: 'system',
-          content: instructions || getDefaultHotelInstructions()
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_audio',
-              input_audio: {
-                data: audio,
-                format: 'wav'
-              }
-            }
-          ]
-        }
-      ]
-    });
-
-    console.log('✅ Response received from OpenAI');
-    console.log('📦 Response:', JSON.stringify(response, null, 2));
-
-    // Extraer el audio y texto de la respuesta de Chat Completions
-    let audioResponse = null;
-    let textResponse = '';
-
-    if (response.choices && response.choices.length > 0) {
-      const message = response.choices[0].message;
-
-      // El audio viene en message.audio
-      if (message.audio) {
-        audioResponse = message.audio;
-        console.log('🔊 Audio found in response');
-      }
-
-      // El texto transcrito viene en message.content
-      if (message.content) {
-        textResponse = message.content;
-        console.log('📝 Text found in response:', textResponse);
-      }
-    }
-
-    // Devolver la respuesta al frontend
-    res.json({
-      success: true,
-      audio: audioResponse,
-      text: textResponse,
-      fullResponse: response
-    });
-
-  } catch (error) {
-    console.error('❌ Error calling OpenAI:', error);
-
-    res.status(500).json({
-      error: 'OpenAI API error',
-      message: error.message,
-      details: error.response?.data || error.toString()
-    });
-  }
-});
-
-// Instrucciones por defecto para el asistente de hotel
-function getDefaultHotelInstructions() {
-  return `Eres un asistente virtual de hotel profesional, amable y servicial. Tu nombre es "Hotel Assistant".
-
-Tu función es ayudar a los huéspedes con:
-- Información sobre servicios del hotel (restaurante, spa, gimnasio, piscina)
-- Horarios de comidas y servicios
-- Reservas de mesas en el restaurante
-- Solicitudes de servicio a la habitación
-- Información turística local
-- Check-in y check-out
-- Servicios de conserjería
-
-Siempre responde en español de forma clara, concisa y amigable. Si no sabes algo, ofrece alternativas o sugiere contactar con recepción.
-
-Mantén un tono profesional pero cercano, como si fueras un conserje experimentado del hotel.`;
-}
 
 // Servir frontend estático en producción
 if (NODE_ENV === 'production') {
   const distPath = path.join(__dirname, 'dist');
-
   console.log('📂 Serving static files from:', distPath);
-
-  // Servir archivos estáticos
   app.use(express.static(distPath));
 
-  // SPA fallback - todas las rutas que no sean API van al index.html
+  // SPA fallback
   app.get('*', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
-// Iniciar servidor
-app.listen(PORT, () => {
-  console.log(`🚀 Backend Server running on http://localhost:${PORT}`);
-  console.log(`🤖 Using model: gpt-4o-audio-preview`);
-  console.log(`🔑 API Key configured:`, process.env.OPENAI_API_KEY ? 'Yes' : 'No');
+// Crear servidor HTTP
+const server = app.listen(PORT, () => {
+  console.log(`🚀 Relay Server running on http://localhost:${PORT}`);
+  console.log(`🤖 Model: gpt-realtime-mini-2025-10-06`);
+  console.log(`🔑 API Key configured: Yes`);
+  console.log(`🌍 Environment: ${NODE_ENV}`);
+});
 
-  if (!process.env.OPENAI_API_KEY) {
-    console.error('❌ WARNING: OPENAI_API_KEY not found in environment variables!');
-    console.error('💡 Create a .env file with: OPENAI_API_KEY=sk-proj-...');
+// Crear WebSocket server
+const wss = new WebSocketServer({ server });
+
+console.log('🔌 WebSocket server ready');
+
+// Manejar conexiones de clientes
+wss.on('connection', (clientWs) => {
+  console.log('👤 Client connected');
+
+  let openaiWs = null;
+  let isAlive = true;
+
+  // Conectar a OpenAI Realtime API
+  try {
+    const model = 'gpt-realtime-mini-2025-10-06';
+    const url = `wss://api.openai.com/v1/realtime?model=${model}`;
+
+    console.log('🔌 Connecting to OpenAI Realtime API...');
+    console.log('📝 URL:', url);
+
+    openaiWs = new WebSocket(url, {
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'OpenAI-Beta': 'realtime=v1'
+      }
+    });
+
+    // Cuando OpenAI se conecta
+    openaiWs.on('open', () => {
+      console.log('✅ Connected to OpenAI Realtime API');
+
+      // Notificar al cliente que estamos conectados al relay
+      clientWs.send(JSON.stringify({
+        type: 'relay.connected',
+        timestamp: Date.now()
+      }));
+    });
+
+    // Relay mensajes de OpenAI -> Cliente
+    openaiWs.on('message', (data) => {
+      try {
+        const message = data.toString();
+
+        // Log solo los tipos de eventos, no el contenido completo
+        try {
+          const parsed = JSON.parse(message);
+          console.log('📥 OpenAI → Client:', parsed.type);
+        } catch (e) {
+          console.log('📥 OpenAI → Client: [binary data]');
+        }
+
+        // Reenviar al cliente
+        if (clientWs.readyState === WebSocket.OPEN) {
+          clientWs.send(message);
+        }
+      } catch (err) {
+        console.error('❌ Error relaying OpenAI message:', err);
+      }
+    });
+
+    // Errores de OpenAI
+    openaiWs.on('error', (error) => {
+      console.error('❌ OpenAI WebSocket error:', error);
+
+      // Notificar al cliente
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(JSON.stringify({
+          type: 'error',
+          error: {
+            message: 'OpenAI connection error',
+            details: error.message
+          }
+        }));
+      }
+    });
+
+    // Cuando OpenAI cierra la conexión
+    openaiWs.on('close', (code, reason) => {
+      console.log('🔌 OpenAI connection closed:', code, reason.toString());
+
+      // Cerrar conexión del cliente también
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.close(1000, 'OpenAI connection closed');
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ Error connecting to OpenAI:', err);
+
+    clientWs.send(JSON.stringify({
+      type: 'error',
+      error: {
+        message: 'Failed to connect to OpenAI',
+        details: err.message
+      }
+    }));
+
+    clientWs.close(1011, 'Internal server error');
+    return;
   }
+
+  // Relay mensajes de Cliente -> OpenAI
+  clientWs.on('message', (data) => {
+    try {
+      const message = data.toString();
+
+      // Log solo los tipos de eventos
+      try {
+        const parsed = JSON.parse(message);
+        console.log('📤 Client → OpenAI:', parsed.type);
+      } catch (e) {
+        console.log('📤 Client → OpenAI: [binary data]');
+      }
+
+      // Reenviar a OpenAI
+      if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+        openaiWs.send(message);
+      } else {
+        console.warn('⚠️ OpenAI WebSocket not ready, dropping message');
+      }
+    } catch (err) {
+      console.error('❌ Error relaying client message:', err);
+    }
+  });
+
+  // Heartbeat para detectar conexiones muertas
+  clientWs.on('pong', () => {
+    isAlive = true;
+  });
+
+  // Cuando el cliente se desconecta
+  clientWs.on('close', (code, reason) => {
+    console.log('👤 Client disconnected:', code, reason.toString());
+
+    // Cerrar conexión a OpenAI
+    if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+      openaiWs.close(1000, 'Client disconnected');
+    }
+  });
+
+  // Error del cliente
+  clientWs.on('error', (error) => {
+    console.error('❌ Client WebSocket error:', error);
+  });
+
+  // Verificar conexión viva cada 30 segundos
+  const heartbeatInterval = setInterval(() => {
+    if (!isAlive) {
+      console.log('💀 Client connection timeout, terminating...');
+      clearInterval(heartbeatInterval);
+      clientWs.terminate();
+      if (openaiWs) {
+        openaiWs.close(1000, 'Client timeout');
+      }
+      return;
+    }
+
+    isAlive = false;
+    clientWs.ping();
+  }, 30000);
+
+  // Limpiar al desconectar
+  clientWs.on('close', () => {
+    clearInterval(heartbeatInterval);
+  });
+});
+
+// Manejar cierre del servidor
+process.on('SIGTERM', () => {
+  console.log('⚠️ SIGTERM received, closing server...');
+  wss.close(() => {
+    server.close(() => {
+      console.log('✅ Server closed');
+      process.exit(0);
+    });
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('⚠️ SIGINT received, closing server...');
+  wss.close(() => {
+    server.close(() => {
+      console.log('✅ Server closed');
+      process.exit(0);
+    });
+  });
 });
