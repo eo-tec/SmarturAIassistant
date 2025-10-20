@@ -37,7 +37,7 @@ const OrbitalSystem = ({ state }: OrbitalSystemProps) => {
     // Variables de tiempo y animación
     let time = 0;
     let currentState = stateRef.current;
-    let transitionProgress = 0;
+    // let transitionProgress = 0; // Variable reservada para futuras animaciones de transición
 
     // NÚCLEO CENTRAL (esfera)
     const sphereGeometry = new THREE.SphereGeometry(1.5, 64, 64);
@@ -123,7 +123,7 @@ const OrbitalSystem = ({ state }: OrbitalSystemProps) => {
       // Sincronizar con el prop state usando la ref
       if (currentState !== stateRef.current) {
         currentState = stateRef.current;
-        transitionProgress = 0;
+        // transitionProgress = 0; // Reset para futuras animaciones
       }
 
       // ===== ESTADO: IDLE =====
