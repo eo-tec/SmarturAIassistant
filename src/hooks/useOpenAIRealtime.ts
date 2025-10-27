@@ -5,6 +5,7 @@ export type RealtimeState =
   | 'disconnected'
   | 'connecting'
   | 'connected'
+  | 'idle'
   | 'listening'
   | 'thinking'
   | 'speaking'
@@ -23,6 +24,7 @@ interface UseOpenAIRealtimeReturn {
   disconnect: () => void;
   sendAudio: (audioData: Float32Array) => void;
   isConnected: boolean;
+  outputAudioLevel: number; // Nivel de audio de salida (0.0 - 1.0)
 }
 
 /**
@@ -34,10 +36,12 @@ export const useOpenAIRealtime = (
 ): UseOpenAIRealtimeReturn => {
   const [state, setState] = useState<RealtimeState>('disconnected');
   const [error, setError] = useState<string | null>(null);
+  const [outputAudioLevel, setOutputAudioLevel] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
   const stateRef = useRef<RealtimeState>('disconnected');
+  const activeResponseIdRef = useRef<string | null>(null); // Rastrear respuesta activa de OpenAI
 
   // Sync ref with state
   useEffect(() => {
@@ -57,7 +61,7 @@ export const useOpenAIRealtime = (
     audioPlayerRef.current.setOnPlaybackEnd(() => {
       console.log('🔇 Audio playback ended');
       if (stateRef.current === 'speaking') {
-        setState('listening');
+        setState('idle');
       }
     });
 
@@ -66,6 +70,21 @@ export const useOpenAIRealtime = (
         audioPlayerRef.current.close();
         audioPlayerRef.current = null;
       }
+    };
+  }, []);
+
+  // Update output audio level continuously
+  useEffect(() => {
+    const updateAudioLevel = () => {
+      if (audioPlayerRef.current) {
+        setOutputAudioLevel(audioPlayerRef.current.getAudioLevel());
+      }
+    };
+
+    const intervalId = setInterval(updateAudioLevel, 50); // Update every 50ms
+
+    return () => {
+      clearInterval(intervalId);
     };
   }, []);
 
@@ -122,7 +141,7 @@ export const useOpenAIRealtime = (
               type: 'server_vad',
               threshold: 0.5,              // Sensibilidad balanceada
               prefix_padding_ms: 500,      // Capturar 500ms antes de detectar voz
-              silence_duration_ms: 1200,   // Permitir pausas de ~1.2s sin cortar
+              silence_duration_ms: 2000,   // Permitir pausas de ~2s sin cortar
             },
             temperature: 0.8,
           },
@@ -259,16 +278,36 @@ export const useOpenAIRealtime = (
       case 'session.created':
         console.log('✅ Session created:', event.session);
         setError(null); // Limpiar cualquier error previo
-        setState('listening');
+        setState('idle');
         break;
 
       case 'session.updated':
         console.log('✅ Session updated:', event.session);
-        setState('listening');
+        setState('idle');
         break;
 
       case 'input_audio_buffer.speech_started':
         console.log('🎤 User speech started');
+
+        // Si el asistente está hablando, interrumpirlo (barge-in)
+        if (stateRef.current === 'speaking' || activeResponseIdRef.current) {
+          console.log('⚠️ Interrupting assistant response...');
+
+          // 1. Cancelar la respuesta activa en OpenAI (solo si hay una activa)
+          if (activeResponseIdRef.current && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+              type: 'response.cancel'
+            }));
+            console.log('📤 Sent response.cancel to OpenAI (response ID:', activeResponseIdRef.current, ')');
+          }
+
+          // 2. Siempre limpiar el buffer de audio local (puede estar reproduciendo aunque OpenAI terminó)
+          if (audioPlayerRef.current) {
+            audioPlayerRef.current.clear();
+            console.log('🧹 Cleared audio playback buffer');
+          }
+        }
+
         setState('listening');
         break;
 
@@ -287,6 +326,8 @@ export const useOpenAIRealtime = (
 
       case 'response.created':
         console.log('🤖 Response created:', event.response);
+        // Rastrear ID de respuesta activa para poder cancelarla si es necesario
+        activeResponseIdRef.current = event.response?.id || null;
         setState('thinking');
         break;
 
@@ -310,10 +351,29 @@ export const useOpenAIRealtime = (
 
       case 'response.audio.done':
         console.log('✅ Audio response complete');
+        // El AudioPlayer manejará la transición a idle cuando termine de reproducir
         break;
 
       case 'response.done':
         console.log('✅ Response complete:', event.response);
+        // Limpiar ID de respuesta activa
+        activeResponseIdRef.current = null;
+
+        // Si estábamos en thinking (respuesta sin audio), volver a idle inmediatamente
+        if (stateRef.current === 'thinking') {
+          setState('idle');
+        }
+        // Si estábamos en speaking, NO hacer nada aquí.
+        // El AudioPlayer manejará la transición a idle cuando termine de reproducir
+        // a través del callback onPlaybackEnd (líneas 60-65)
+        break;
+
+      case 'response.cancelled':
+        console.log('🚫 Response cancelled (interrupted by user)');
+        // Limpiar ID de respuesta activa
+        activeResponseIdRef.current = null;
+        // La respuesta fue cancelada, volver a idle
+        setState('idle');
         break;
 
       case 'response.text.delta':
@@ -326,6 +386,13 @@ export const useOpenAIRealtime = (
 
       case 'error':
         console.error('❌ Server error:', event.error);
+
+        // Ignorar error de cancelación cuando no hay respuesta activa (es esperado)
+        if (event.error?.code === 'response_cancel_not_active') {
+          console.log('ℹ️ Attempted to cancel but no active response (audio was playing locally only)');
+          break;
+        }
+
         const errorMessage = event.error?.message || JSON.stringify(event.error) || 'server_error';
         setError(errorMessage);
         setState('error');
@@ -347,7 +414,8 @@ export const useOpenAIRealtime = (
     connect,
     disconnect,
     sendAudio,
-    isConnected: state === 'connected' || state === 'listening' || state === 'thinking' || state === 'speaking',
+    isConnected: state === 'connected' || state === 'idle' || state === 'listening' || state === 'thinking' || state === 'speaking',
+    outputAudioLevel,
   };
 };
 
@@ -355,18 +423,90 @@ export const useOpenAIRealtime = (
  * Instrucciones por defecto para el asistente de hotel
  */
 function getDefaultHotelInstructions(): string {
-  return `Eres un asistente virtual de hotel profesional, amable y servicial. Tu nombre es "Hotel Assistant".
+  return `Eres el asistente virtual del Hotel Bilbao Premium, un hotel de 5 estrellas ubicado en el centro de Bilbao, País Vasco. Tu nombre es "Bilbao Assistant".
 
-Tu función es ayudar a los huéspedes con:
-- Información sobre servicios del hotel (restaurante, spa, gimnasio, piscina)
-- Horarios de comidas y servicios
-- Reservas de mesas en el restaurante
-- Solicitudes de servicio a la habitación
-- Información turística local
-- Check-in y check-out
-- Servicios de conserjería
+IMPORTANTE - ESTA ES UNA DEMO:
+Esta es una demostración del producto. Cuando los huéspedes soliciten servicios o acciones, SIMULA que las realizas confirmando que se ha hecho. No menciones que es una simulación.
 
-Siempre responde en español de forma clara, concisa y amigable. Si no sabes algo, ofrece alternativas o sugiere contactar con recepción.
+UBICACIÓN Y CONTEXTO:
+- Hotel en Bilbao, cerca del Museo Guggenheim
+- Conoces perfectamente Bilbao y el País Vasco
+- Solo respondes sobre el hotel o sobre Bilbao/País Vasco
+- Si preguntan sobre otros temas, redirige educadamente al tema del hotel o la ciudad
 
-Mantén un tono profesional pero cercano, como si fueras un conserje experimentado del hotel.`;
+SERVICIOS DEL HOTEL (inventa detalles realistas si es necesario):
+- Restaurante "Bahía Vizcaya" (cocina vasca de autor)
+- Spa y wellness center con piscina climatizada
+- Gimnasio 24 horas
+- Pistas de tenis y pádel
+- Bar terraza con vistas al Guggenheim
+- Room service 24h
+- Servicio de conserjería
+
+HORARIOS TÍPICOS (ajusta si necesario):
+- Desayuno: 7:00 - 11:00
+- Restaurante comida: 13:00 - 16:00
+- Restaurante cena: 20:00 - 23:30
+- Spa: 9:00 - 21:00
+- Pistas deportivas: 8:00 - 22:00
+
+CUANDO TE PIDAN SERVICIOS:
+Si piden toallas, limpieza, room service, o cualquier servicio:
+- Confirma que lo has gestionado inmediatamente
+- Di algo como "Perfecto, ya he notificado a nuestro equipo. Las toallas llegarán a su habitación en 10-15 minutos"
+- NO digas que llamarás o que lo harás, di que YA ESTÁ HECHO
+- NUNCA digas "déjame comprobar", "voy a verificar", "un momento por favor"
+- Responde DIRECTAMENTE como si ya tuvieras toda la información
+
+CUANDO TE PIDAN LLAMAR A RECEPCIÓN O CONTACTAR:
+- Confirma que has contactado y resuelto el tema
+- Ejemplo: "Ya he contactado con recepción y confirman que..."
+- NO digas "voy a llamar" o "déjame contactar"
+
+PARA RESERVAS:
+IMPORTANTE: Solo puedes hacer reservas de servicios DEL HOTEL (restaurante Bahía Vizcaya, spa, pistas de tenis/pádel).
+
+Para servicios del hotel:
+1. Si NO te dan día/hora: Pregunta "¿Para qué día y hora le gustaría la reserva?"
+2. Si te dan día/hora: Confirma inmediatamente con un número de reserva inventado
+   Ejemplo: "Perfecto, he reservado la pista de tenis para mañana a las 10:00. Su número de reserva es BHO-2547"
+
+Para lugares fuera del hotel:
+- Si piden reservar en restaurantes externos u otros lugares fuera del hotel, di educadamente que no puedes hacer reservas externas
+- Ejemplo: "Lo siento, solo puedo gestionar reservas de los servicios del hotel. Sin embargo, le recomiendo el restaurante Txikito, es excelente"
+- Puedes recomendar lugares pero NO reservarlos
+
+RECOMENDACIONES DE BILBAO:
+Si piden recomendaciones, inventa lugares realistas y atractivos:
+- Restaurantes de pintxos, museos, lugares turísticos
+- Sé específico con nombres y ubicaciones (pueden ser inventados pero realistas)
+- Ejemplo: "Le recomiendo el restaurante Txikito en la calle Licenciado Poza, tienen unos pintxos increíbles"
+
+TONO Y ESTILO:
+- Profesional pero cercano y cálido
+- Respuestas concisas (2-4 frases máximo)
+- Siempre en español
+- Actúa con la eficiencia de un conserje de lujo
+- Nunca digas "voy a", "llamaré", "contactaré" → siempre "ya he", "he confirmado", "está gestionado"
+- Responde con CONFIANZA INMEDIATA, como si tuvieras acceso instantáneo a toda la información
+
+NUNCA DIGAS:
+- "Déjame comprobar..."
+- "Voy a verificar..."
+- "Un momento, por favor..."
+- "Permíteme consultar..."
+- "Deja que revise..."
+
+EN SU LUGAR DI:
+- "Claro, [información directa]"
+- "Perfecto, ya está gestionado"
+- "He confirmado que..."
+- "[Respuesta directa sin preámbulos]"
+
+NUNCA:
+- No menciones que es una demo o simulación
+- No des explicaciones técnicas
+- No hables de temas fuera del hotel o Bilbao
+- No seas demasiado extenso en tus respuestas
+- No indiques que estás comprobando o verificando nada`;
 }

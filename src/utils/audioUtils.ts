@@ -142,6 +142,10 @@ export class AudioPlayer {
   private nextStartTime: number;
   private onPlaybackStart?: () => void;
   private onPlaybackEnd?: () => void;
+  private analyser: AnalyserNode;
+  private gainNode: GainNode;
+  private audioLevel: number = 0;
+  private animationFrameId: number | null = null;
 
   constructor(sampleRate: number = 24000) {
     this.audioContext = new AudioContext({ sampleRate });
@@ -149,6 +153,54 @@ export class AudioPlayer {
     this.isPlaying = false;
     this.audioQueue = [];
     this.nextStartTime = 0;
+
+    // Crear nodos para análisis de audio
+    this.analyser = this.audioContext.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.analyser.smoothingTimeConstant = 0.8;
+
+    this.gainNode = this.audioContext.createGain();
+    this.gainNode.gain.value = 1.0;
+
+    // Conectar: gainNode → analyser → destination
+    this.gainNode.connect(this.analyser);
+    this.analyser.connect(this.audioContext.destination);
+
+    // Iniciar análisis de audio
+    this.startAudioAnalysis();
+  }
+
+  /**
+   * Start analyzing audio levels
+   */
+  private startAudioAnalysis() {
+    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+
+    const analyze = () => {
+      this.analyser.getByteTimeDomainData(dataArray);
+
+      // Calcular RMS (Root Mean Square) para nivel de audio
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const normalized = (dataArray[i] - 128) / 128;
+        sum += normalized * normalized;
+      }
+      const rms = Math.sqrt(sum / dataArray.length);
+
+      // Normalizar a rango 0-1 y aplicar suavizado
+      this.audioLevel = Math.min(rms * 2, 1.0);
+
+      this.animationFrameId = requestAnimationFrame(analyze);
+    };
+
+    analyze();
+  }
+
+  /**
+   * Get current audio level (0.0 - 1.0)
+   */
+  getAudioLevel(): number {
+    return this.audioLevel;
   }
 
   /**
@@ -209,7 +261,8 @@ export class AudioPlayer {
     // Create buffer source
     const source = this.audioContext.createBufferSource();
     source.buffer = audioBuffer;
-    source.connect(this.audioContext.destination);
+    // Conectar a través del gainNode para análisis
+    source.connect(this.gainNode);
 
     // Schedule playback
     const startTime = Math.max(this.audioContext.currentTime, this.nextStartTime);
@@ -239,6 +292,17 @@ export class AudioPlayer {
    */
   async close() {
     this.clear();
+
+    // Detener análisis de audio
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+
+    // Desconectar nodos
+    this.gainNode.disconnect();
+    this.analyser.disconnect();
+
     await this.audioContext.close();
   }
 }

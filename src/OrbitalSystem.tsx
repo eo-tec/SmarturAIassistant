@@ -5,16 +5,23 @@ export type AssistantState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 interface OrbitalSystemProps {
   state: AssistantState;
+  audioLevel?: number; // Nivel de audio (0.0 - 1.0)
 }
 
-const OrbitalSystem = ({ state }: OrbitalSystemProps) => {
+const OrbitalSystem = ({ state, audioLevel = 0 }: OrbitalSystemProps) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<AssistantState>(state);
+  const audioLevelRef = useRef<number>(audioLevel);
 
   // Actualizar la ref cada vez que cambie el prop state
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  // Actualizar la ref cada vez que cambie el prop audioLevel
+  useEffect(() => {
+    audioLevelRef.current = audioLevel;
+  }, [audioLevel]);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -37,7 +44,13 @@ const OrbitalSystem = ({ state }: OrbitalSystemProps) => {
     // Variables de tiempo y animación
     let time = 0;
     let currentState = stateRef.current;
+    let smoothedAudioLevel = 0; // Nivel de audio suavizado para transiciones fluidas
     // let transitionProgress = 0; // Variable reservada para futuras animaciones de transición
+
+    // Función helper para suavizado (linear interpolation)
+    const lerp = (start: number, end: number, factor: number) => {
+      return start + (end - start) * factor;
+    };
 
     // NÚCLEO CENTRAL (esfera)
     const sphereGeometry = new THREE.SphereGeometry(1.5, 64, 64);
@@ -120,6 +133,11 @@ const OrbitalSystem = ({ state }: OrbitalSystemProps) => {
       requestAnimationFrame(animate);
       time += 0.016; // ~60fps
 
+      // Suavizar el nivel de audio para transiciones fluidas
+      // Factor de 0.15 = transiciones suaves sin lag perceptible
+      const targetAudioLevel = audioLevelRef.current || 0;
+      smoothedAudioLevel = lerp(smoothedAudioLevel, targetAudioLevel, 0.15);
+
       // Sincronizar con el prop state usando la ref
       if (currentState !== stateRef.current) {
         currentState = stateRef.current;
@@ -166,33 +184,37 @@ const OrbitalSystem = ({ state }: OrbitalSystemProps) => {
 
       // ===== ESTADO: LISTENING =====
       else if (currentState === 'listening') {
-        // Pulso reactivo simulado
-        const pulse = 1 + Math.sin(time * 3) * 0.06;
-        sphere.scale.setScalar(pulse);
+        // Pulso reactivo al nivel de audio del micrófono (suavizado)
+        const audioIntensity = smoothedAudioLevel;
+        const basePulse = 1 + Math.sin(time * 3) * 0.02; // Pulso base sutil
+        const audioPulse = audioIntensity * 0.15; // Reactividad al audio
+        sphere.scale.setScalar(basePulse + audioPulse);
 
-        // Rotación moderada
-        sphere.rotation.y += 0.003;
+        // Rotación moderada (más rápida con audio)
+        sphere.rotation.y += 0.003 + audioIntensity * 0.005;
 
         // Color blanco brillante
         sphereMaterial.color.setHex(0xffffff);
 
-        // Halo con ripples centrípetos
-        const ripple = Math.sin(time * 6) * 0.15;
+        // Halo con ripples centrípetos reactivos al audio
+        const rippleSpeed = 6 + audioIntensity * 4;
+        const rippleIntensity = 0.15 + audioIntensity * 0.1;
+        const ripple = Math.sin(time * rippleSpeed) * rippleIntensity;
         halo.scale.setScalar(1.2 - Math.abs(ripple));
-        haloMaterial.opacity = 0.3 + Math.abs(ripple) * 0.2;
+        haloMaterial.opacity = 0.3 + Math.abs(ripple) * 0.2 + audioIntensity * 0.15;
 
-        // Partículas en órbitas bajas (4-8 visibles)
+        // Partículas en órbitas (velocidad reactiva al audio)
         particles.forEach((p, i) => {
           if (i < 8) {
             p.mesh.visible = true;
-            p.angle += p.speed * 2;
-            const convergence = Math.sin(time * 2) * 0.3;
+            p.angle += p.speed * (2 + audioIntensity * 3);
+            const convergence = Math.sin(time * 2) * (0.3 + audioIntensity * 0.2);
             p.mesh.position.set(
               Math.cos(p.angle) * (p.radius * 0.8 - convergence),
               p.height * 0.5,
               Math.sin(p.angle) * (p.radius * 0.8 - convergence)
             );
-            (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.6;
+            (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.6 + audioIntensity * 0.2;
           } else {
             p.mesh.visible = false;
           }
@@ -247,9 +269,11 @@ const OrbitalSystem = ({ state }: OrbitalSystemProps) => {
 
       // ===== ESTADO: SPEAKING =====
       else if (currentState === 'speaking') {
-        // Micro-pulsos rápidos simulados
-        const rapidPulse = 1 + Math.sin(time * 8) * 0.05;
-        sphere.scale.setScalar(rapidPulse);
+        // Pulso reactivo al audio de salida del asistente (suavizado)
+        const audioIntensity = smoothedAudioLevel;
+        const basePulse = 1 + Math.sin(time * 8) * 0.02; // Pulso base sutil
+        const audioPulse = audioIntensity * 0.12; // Reactividad al audio
+        sphere.scale.setScalar(basePulse + audioPulse);
 
         // Rotación lenta
         sphere.rotation.y += 0.002;
@@ -257,37 +281,39 @@ const OrbitalSystem = ({ state }: OrbitalSystemProps) => {
         // Blanco brillante para speaking
         sphereMaterial.color.setHex(0xffffff);
 
-        // Halo que se expande/contrae
-        const expansion = 1 + Math.sin(time * 4) * 0.06;
-        halo.scale.setScalar(expansion);
-        haloMaterial.opacity = 0.35;
+        // Halo que se expande/contrae (reactivo al audio)
+        const expansionBase = 1 + Math.sin(time * 4) * 0.03;
+        const expansionAudio = audioIntensity * 0.08;
+        halo.scale.setScalar(expansionBase + expansionAudio);
+        haloMaterial.opacity = 0.35 + audioIntensity * 0.15;
 
-        // Partículas reactivas al pulso (8 visibles)
-        // Las partículas se alejan cuando la esfera crece y se acercan cuando se encoge
-        const pulseValue = Math.sin(time * 8) * 0.05; // mismo valor que rapidPulse
-        const radiusMultiplier = 1 + pulseValue * 0.8; // Movimiento más sutil
+        // Partículas reactivas al audio (8 visibles)
+        const radiusMultiplier = 1 + audioPulse * 1.2;
 
         particles.forEach((p, i) => {
           if (i < 8) {
             p.mesh.visible = true;
-            // Posición fija sin rotación, sincronizada con el pulso
+            // Posición sincronizada con el pulso de audio
             p.mesh.position.set(
               Math.cos(p.angle) * p.radius * radiusMultiplier,
               p.height,
               Math.sin(p.angle) * p.radius * radiusMultiplier
             );
-            (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.4;
+            (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.4 + audioIntensity * 0.3;
           } else {
             p.mesh.visible = false;
           }
         });
 
-        // Waveform visible y ondulante
-        waveMaterial.opacity = 0.6;
+        // Waveform reactiva al audio de salida
+        const waveOpacity = 0.4 + audioIntensity * 0.4;
+        waveMaterial.opacity = waveOpacity;
         const positions = waveGeometry.attributes.position;
         for (let i = 0; i < positions.count; i++) {
           const x = positions.getX(i);
-          const wave = Math.sin(x * 2 + time * 4) * 0.3 * Math.abs(Math.sin(time * 8));
+          // Amplitud de onda basada en el nivel de audio
+          const waveAmplitude = 0.3 * audioIntensity + 0.05;
+          const wave = Math.sin(x * 2 + time * 4) * waveAmplitude;
           positions.setY(i, wave);
         }
         positions.needsUpdate = true;
