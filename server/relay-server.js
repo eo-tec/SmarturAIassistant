@@ -24,7 +24,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     message: 'OpenAI Realtime API Relay Server',
-    model: 'gpt-realtime-mini-2025-10-06',
+    model: 'gpt-realtime-2025-08-28',
     version: '1.0.0'
   });
 });
@@ -44,7 +44,7 @@ if (NODE_ENV === 'production') {
 // Crear servidor HTTP
 const server = app.listen(PORT, () => {
   console.log(`🚀 Relay Server running on http://localhost:${PORT}`);
-  console.log(`🤖 Model: gpt-realtime-mini-2025-10-06`);
+  console.log(`🤖 Model: gpt-realtime-2025-08-28`);
   console.log(`🔑 API Key configured: Yes`);
   console.log(`🌍 Environment: ${NODE_ENV}`);
 });
@@ -63,7 +63,7 @@ wss.on('connection', (clientWs) => {
 
   // Conectar a OpenAI Realtime API
   try {
-    const model = 'gpt-realtime-mini-2025-10-06';
+    const model = 'gpt-realtime-2025-08-28';
     const url = `wss://api.openai.com/v1/realtime?model=${model}`;
 
     console.log('🔌 Connecting to OpenAI Realtime API...');
@@ -159,6 +159,21 @@ wss.on('connection', (clientWs) => {
       try {
         const parsed = JSON.parse(message);
         console.log('📤 Client → OpenAI:', parsed.type);
+
+        // Log detallado para session.update y conversation.item.create (debug)
+        if (parsed.type === 'session.update') {
+          console.log('🔍 Session update details:');
+          console.log('  - Instructions length:', parsed.session?.instructions?.length || 0);
+          console.log('  - Instructions preview:', parsed.session?.instructions?.substring(0, 80) + '...');
+          console.log('  - Voice:', parsed.session?.voice);
+          console.log('  - Modalities:', parsed.session?.modalities);
+        } else if (parsed.type === 'conversation.item.create') {
+          console.log('🔍 Conversation item details:');
+          console.log('  - Role:', parsed.item?.role);
+          console.log('  - Content type:', parsed.item?.content?.[0]?.type);
+          console.log('  - Text length:', parsed.item?.content?.[0]?.text?.length || 0);
+          console.log('  - Text preview:', parsed.item?.content?.[0]?.text?.substring(0, 80) + '...');
+        }
       } catch (e) {
         console.log('📤 Client → OpenAI: [binary data]');
       }
