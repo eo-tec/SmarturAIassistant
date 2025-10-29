@@ -117,7 +117,7 @@ export const useOpenAIRealtime = (
       console.log('🔌 Connecting to OpenAI via relay server...');
       console.log('📡 Using relay server for secure connection');
 
-      const relayUrl = 'ws://localhost:8080';
+      const relayUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8080';
       console.log('🔗 Relay URL:', relayUrl);
 
       const ws = new WebSocket(relayUrl);
