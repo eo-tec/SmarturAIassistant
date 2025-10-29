@@ -5,8 +5,7 @@
   "main": "relay-server.js",
   "scripts": {
     "start": "NODE_ENV=production node relay-server.js",
-    "dev": "nodemon relay-server.js",
-    "build": "cd .. && npm run build:full"
+    "dev": "nodemon relay-server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
