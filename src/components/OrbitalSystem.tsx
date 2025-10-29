@@ -1,14 +1,15 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 
-export type AssistantState = 'idle' | 'listening' | 'thinking' | 'speaking';
+export type AssistantState = 'inactive' | 'idle' | 'listening' | 'thinking' | 'speaking';
 
 interface OrbitalSystemProps {
   state: AssistantState;
   audioLevel?: number; // Nivel de audio (0.0 - 1.0)
+  onClick?: () => void; // Handler para clicks en la esfera
 }
 
-const OrbitalSystem = ({ state, audioLevel = 0 }: OrbitalSystemProps) => {
+const OrbitalSystem = ({ state, audioLevel = 0, onClick }: OrbitalSystemProps) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<AssistantState>(state);
   const audioLevelRef = useRef<number>(audioLevel);
@@ -125,6 +126,26 @@ const OrbitalSystem = ({ state, audioLevel = 0 }: OrbitalSystemProps) => {
     // Posicionar cámara
     camera.position.z = 8;
 
+    // Handler simple para clicks
+    const handleClick = () => {
+      console.log('🖱️ Click detected on canvas');
+      if (!onClick) {
+        console.log('⚠️ onClick is undefined, ignoring click');
+        return;
+      }
+      console.log('✅ Calling onClick handler');
+      onClick();
+    };
+
+    // Agregar event listener para clicks
+    if (onClick) {
+      console.log('🎯 Adding click event listener to canvas');
+      renderer.domElement.addEventListener('click', handleClick);
+      renderer.domElement.style.cursor = 'pointer';
+    } else {
+      console.log('⏸️ onClick not provided, click listener not added');
+    }
+
     // Función helper para easing sine-in-out
     const easeInOutSine = (t: number) => -(Math.cos(Math.PI * t) - 1) / 2;
 
@@ -144,8 +165,34 @@ const OrbitalSystem = ({ state, audioLevel = 0 }: OrbitalSystemProps) => {
         // transitionProgress = 0; // Reset para futuras animaciones
       }
 
+      // ===== ESTADO: INACTIVE =====
+      if (currentState === 'inactive') {
+        // Respiración muy sutil y lenta (8-10 segundos)
+        const breathe = 0.995 + 0.005 * easeInOutSine((Math.sin(time * 0.15) + 1) / 2);
+        sphere.scale.setScalar(breathe);
+
+        // Sin rotación
+        sphere.rotation.y = 0;
+        sphere.rotation.x = 0;
+
+        // Color gris claro
+        sphereMaterial.color.setHex(0xd3d3d3);
+
+        // Halo casi invisible o completamente oculto
+        haloMaterial.opacity = 0.05;
+        halo.scale.setScalar(1);
+
+        // Todas las partículas ocultas
+        particles.forEach((p) => {
+          p.mesh.visible = false;
+        });
+
+        // Waveform oculta
+        waveMaterial.opacity = 0;
+      }
+
       // ===== ESTADO: IDLE =====
-      if (currentState === 'idle') {
+      else if (currentState === 'idle') {
         // Respiración lenta (4-6 segundos)
         const breathe = 0.98 + 0.02 * easeInOutSine((Math.sin(time * 0.3) + 1) / 2);
         sphere.scale.setScalar(breathe);
@@ -336,6 +383,9 @@ const OrbitalSystem = ({ state, audioLevel = 0 }: OrbitalSystemProps) => {
     // Cleanup al desmontar el componente
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (onClick) {
+        renderer.domElement.removeEventListener('click', handleClick);
+      }
       mountRef.current?.removeChild(renderer.domElement);
 
       // Limpiar geometrías
@@ -359,7 +409,19 @@ const OrbitalSystem = ({ state, audioLevel = 0 }: OrbitalSystemProps) => {
     };
   }, []); // Solo se ejecuta una vez al montar, stateRef se actualiza automáticamente
 
-  return <div ref={mountRef} />;
+  return (
+    <div
+      ref={mountRef}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        zIndex: 0
+      }}
+    />
+  );
 };
 
 export default OrbitalSystem;

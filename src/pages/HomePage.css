@@ -1,0 +1,57 @@
+.start-button {
+  position: fixed;
+  bottom: 15%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+
+  /* Estilos del botón */
+  padding: 16px 32px;
+  background: transparent;
+  border: 2px solid #d3d3d3;
+  border-radius: 50px;
+  color: #d3d3d3;
+  font-size: 18px;
+  font-weight: 200;
+  letter-spacing: 1px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+  cursor: pointer;
+
+  /* Efectos visuales */
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 20px rgba(211, 211, 211, 0.1);
+  transition: all 0.3s ease;
+  animation: fadeIn 2.5s ease-out, pulse 4s ease-in-out infinite 2.5s;
+}
+
+.start-button:hover {
+  background: rgba(211, 211, 211, 0.1);
+  border-color: #ffffff;
+  color: #ffffff;
+  box-shadow: 0 0 30px rgba(211, 211, 211, 0.3);
+  transform: translateX(-50%) scale(1.05);
+}
+
+.start-button:active {
+  transform: translateX(-50%) scale(0.98);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}

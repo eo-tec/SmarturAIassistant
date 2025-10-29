@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile para deployment en Dokploy
 # Stage 1: Build del frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app
 
@@ -10,8 +10,8 @@ COPY tsconfig*.json ./
 COPY vite.config.ts ./
 COPY index.html ./
 
-# Instalar dependencias del frontend
-RUN npm ci --only=production
+# Instalar todas las dependencias (necesarias para build)
+RUN npm ci
 
 # Copiar código fuente del frontend
 COPY src ./src
@@ -21,7 +21,7 @@ COPY public ./public
 RUN npm run build
 
 # Stage 2: Runtime - Backend + Frontend estático
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 

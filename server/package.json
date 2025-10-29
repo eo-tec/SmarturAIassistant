@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "WebSocket relay server for OpenAI Realtime API",
   "main": "relay-server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "start": "NODE_ENV=production node relay-server.js",
     "dev": "nodemon relay-server.js"
