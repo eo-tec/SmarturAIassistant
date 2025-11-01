@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { useMicrophoneStream } from '../hooks/useMicrophoneStream'
 import { useOpenAIRealtime, type RealtimeState } from '../hooks/useOpenAIRealtime'
-import OrbitalSystem from '../components/OrbitalSystem.tsx'
-import type { AssistantState } from '../components/OrbitalSystem.tsx'
+import { VoiceOrb } from '../components/VoiceOrb'
 import './HomePage.css'
 import '../App.css'
+
+type AssistantState = 'inactive' | 'idle' | 'listening' | 'thinking' | 'speaking'
 
 function HomePage() {
   const [state, setState] = useState<AssistantState>('inactive')
@@ -125,19 +126,24 @@ function HomePage() {
   console.log('🎨 Rendering HomePage - state:', state, 'isActive:', isActive, 'onClick:', onClickHandler ? 'defined' : 'undefined');
 
   return (
-    <>
-      <OrbitalSystem
-        state={state}
-        audioLevel={audioLevel}
+    <div className="home-page">
+      <div
+        className={`orb-container ${state === 'inactive' ? 'inactive' : ''}`}
         onClick={onClickHandler}
-      />
+        style={{ cursor: state === 'inactive' ? 'pointer' : 'default' }}
+      >
+        <VoiceOrb
+          mode={state}
+          audioLevel={audioLevel}
+        />
+      </div>
 
       {state === 'inactive' && (
         <button className="start-button" onClick={activateAssistant}>
           Haz click aquí para empezar
         </button>
       )}
-    </>
+    </div>
   )
 }
 
