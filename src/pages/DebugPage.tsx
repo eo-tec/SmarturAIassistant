@@ -4,7 +4,7 @@ import { useOpenAIRealtime, type RealtimeState } from '../hooks/useOpenAIRealtim
 import OrbitalSystem from '../components/OrbitalSystem.tsx'
 import '../App.css'
 
-type AssistantState = 'idle' | 'listening' | 'thinking' | 'speaking'
+type AssistantState = 'idle' | 'listening' | 'speaking'
 
 function DebugPage() {
   const [state, setState] = useState<AssistantState>('idle')
@@ -33,7 +33,8 @@ function DebugPage() {
           setState('listening')
           break
         case 'thinking':
-          setState('thinking')
+          // El estado thinking ahora se muestra como idle
+          setState('idle')
           break
         case 'speaking':
           setState('speaking')
@@ -114,7 +115,7 @@ function DebugPage() {
     ? microphone.audioLevel // Nivel del micrófono cuando escucha
     : state === 'speaking'
     ? realtime.outputAudioLevel // Nivel del audio de salida cuando habla
-    : 0; // Sin audio para idle/thinking
+    : 0; // Sin audio para idle
 
   return (
     <>
@@ -184,12 +185,6 @@ function DebugPage() {
             onClick={() => setState('listening')}
           >
             Listening
-          </button>
-          <button
-            className={`control-btn ${state === 'thinking' ? 'active' : ''}`}
-            onClick={() => setState('thinking')}
-          >
-            Thinking
           </button>
           <button
             className={`control-btn ${state === 'speaking' ? 'active' : ''}`}

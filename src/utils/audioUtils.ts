@@ -146,6 +146,8 @@ export class AudioPlayer {
   private gainNode: GainNode;
   private audioLevel: number = 0;
   private animationFrameId: number | null = null;
+  private endTimeout: number | null = null;
+  private readonly END_TIMEOUT_MS = 500; // Grace period before calling onPlaybackEnd
 
   constructor(sampleRate: number = 24000) {
     this.audioContext = new AudioContext({ sampleRate });
@@ -222,6 +224,12 @@ export class AudioPlayer {
    * @param audioData Audio data in Float32Array format
    */
   addAudioChunk(audioData: Float32Array) {
+    // Cancel any pending end timeout since we're receiving more audio
+    if (this.endTimeout !== null) {
+      clearTimeout(this.endTimeout);
+      this.endTimeout = null;
+    }
+
     this.audioQueue.push(audioData);
 
     if (!this.isPlaying) {
@@ -234,9 +242,23 @@ export class AudioPlayer {
    */
   private startPlayback() {
     if (this.audioQueue.length === 0) {
-      this.isPlaying = false;
-      this.onPlaybackEnd?.();
+      // Don't end playback immediately - wait for grace period
+      // in case more chunks are coming
+      if (this.endTimeout === null) {
+        this.endTimeout = window.setTimeout(() => {
+          this.isPlaying = false;
+          this.nextStartTime = 0;  // Reset for next playback session
+          this.endTimeout = null;
+          this.onPlaybackEnd?.();
+        }, this.END_TIMEOUT_MS);
+      }
       return;
+    }
+
+    // Cancel any pending end timeout since we have more audio to play
+    if (this.endTimeout !== null) {
+      clearTimeout(this.endTimeout);
+      this.endTimeout = null;
     }
 
     this.isPlaying = true;
@@ -281,6 +303,12 @@ export class AudioPlayer {
    * Clear all queued audio and stop playback
    */
   clear() {
+    // Cancel any pending end timeout
+    if (this.endTimeout !== null) {
+      clearTimeout(this.endTimeout);
+      this.endTimeout = null;
+    }
+
     this.audioQueue = [];
     this.nextStartTime = 0;
     this.isPlaying = false;

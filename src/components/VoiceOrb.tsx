@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
 interface VoiceOrbProps {
-  mode: "listening" | "thinking" | "speaking" | "idle" | "inactive";
+  mode: "listening" | "speaking" | "idle" | "inactive";
   audioLevel?: number; // 0.0 to 1.0
 }
 
@@ -52,11 +52,6 @@ export const VoiceOrb = ({ mode, audioLevel = 0 }: VoiceOrbProps) => {
         targetScale = 1 + audioScale + Math.sin(time * 8) * 0.08;
         colorIntensity = 0.6 + audioLevel * 0.4;
         points = 80;
-      } else if (mode === "thinking") {
-        // Thinking animation - stable size with color/gradient rotation
-        targetScale = 1;
-        colorIntensity = 0.3 + Math.sin(time * 2) * 0.2;
-        points = 48;
       } else if (mode === "inactive") {
         // Inactive animation - very subtle, gray
         targetScale = 1;
@@ -81,8 +76,6 @@ export const VoiceOrb = ({ mode, audioLevel = 0 }: VoiceOrbProps) => {
         } else if (mode === "speaking") {
           // Speaking - stable with minimal distortion, audio reactive
           noise = Math.sin(angle * 5 + time * 8) * (3 + audioLevel * 2);
-        } else if (mode === "thinking") {
-          noise = Math.sin(angle * 3 + time * 3) * 8;
         }
         // Idle and inactive have no noise (noise = 0) for perfect circle
         
@@ -136,7 +129,7 @@ export const VoiceOrb = ({ mode, audioLevel = 0 }: VoiceOrbProps) => {
           b: 250
         };
       } else {
-        // Default gradient (thinking/idle)
+        // Default gradient (idle/inactive)
         baseColor = {
           r: 34 + colorIntensity * 50,
           g: 211 - colorIntensity * 100,

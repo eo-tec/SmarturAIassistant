@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 
-export type AssistantState = 'inactive' | 'idle' | 'listening' | 'thinking' | 'speaking';
+export type AssistantState = 'inactive' | 'idle' | 'listening' | 'speaking';
 
 interface OrbitalSystemProps {
   state: AssistantState;
@@ -265,49 +265,6 @@ const OrbitalSystem = ({ state, audioLevel = 0, onClick }: OrbitalSystemProps) =
           } else {
             p.mesh.visible = false;
           }
-        });
-
-        // Waveform oculta
-        waveMaterial.opacity = 0;
-      }
-
-      // ===== ESTADO: THINKING =====
-      else if (currentState === 'thinking') {
-        // Micro-deformación simulada con variación de emisividad
-        const deform = 1 + Math.sin(time * 2) * 0.02;
-        sphere.scale.setScalar(deform);
-
-        // Rotación constante
-        sphere.rotation.y += 0.004;
-        sphere.rotation.x += 0.002;
-
-        // Escala de grises: transición entre gris oscuro y gris claro
-        const colorMix = (Math.sin(time * 0.5) + 1) / 2;
-        const darkGray = new THREE.Color(0x666666);
-        const lightGray = new THREE.Color(0xdddddd);
-        sphereMaterial.color.lerpColors(darkGray, lightGray, colorMix);
-
-        // Halo como arco de progreso
-        const progress = (time * 0.4) % (Math.PI * 2);
-        haloMaterial.opacity = 0.25;
-        halo.rotation.z = progress;
-        halo.scale.setScalar(1.1);
-
-        // Partículas con movimientos verticales (6-12 visibles)
-        particles.forEach((p, i) => {
-          p.mesh.visible = true;
-          p.angle += p.speed;
-          const verticalMove = Math.sin(time * 0.8 + i * 0.5) * 0.8;
-
-          // Alineaciones ocasionales
-          const align = i % 2 === 0 ? Math.sin(time * 1.2) * 0.1 : 0;
-
-          p.mesh.position.set(
-            Math.cos(p.angle) * (p.radius + align),
-            verticalMove,
-            Math.sin(p.angle) * (p.radius + align)
-          );
-          (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.5;
         });
 
         // Waveform oculta

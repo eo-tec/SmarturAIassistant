@@ -5,51 +5,27 @@ import { VoiceOrb } from '../components/VoiceOrb'
 import './HomePage.css'
 import '../App.css'
 
-type AssistantState = 'inactive' | 'idle' | 'listening' | 'thinking' | 'speaking'
+type AssistantState = 'inactive' | 'idle' | 'listening' | 'speaking'
+
+// Umbrales para detección de audio
+const LISTENING_THRESHOLD_LOW = 0.01;   // Umbral normal para detectar voz del usuario
+const LISTENING_THRESHOLD_HIGH = 0.05;  // Umbral alto para interrumpir al asistente
+const SPEAKING_THRESHOLD = 0.01;        // Umbral para detectar audio de salida
 
 function HomePage() {
   const [state, setState] = useState<AssistantState>('inactive')
   const [isActive, setIsActive] = useState(false)
+  const [realtimeState, setRealtimeState] = useState<RealtimeState>('disconnected')
   const realtimeRef = useRef<any>(null)
   const hasActivatedRef = useRef(false) // Track si el asistente ha sido activado
+  const prevStateRef = useRef<AssistantState>('inactive') // Track previous state for logging
 
   // Hook de OpenAI Realtime API
   const realtime = useOpenAIRealtime({
     voice: 'shimmer',
-    onStateChange: (realtimeState: RealtimeState) => {
-      console.log('🔄 Realtime state changed:', realtimeState)
-
-      // Solo actualizar el estado visual si el asistente ha sido activado
-      if (!hasActivatedRef.current) {
-        console.log('⏸️ Assistant not activated yet, ignoring state change')
-        return
-      }
-
-      // Mapear estados de Realtime a estados del asistente
-      switch (realtimeState) {
-        case 'disconnected':
-        case 'connected':
-          setState('idle')
-          break
-        case 'connecting':
-          setState('idle')
-          break
-        case 'idle':
-          setState('idle')
-          break
-        case 'listening':
-          setState('listening')
-          break
-        case 'thinking':
-          setState('thinking')
-          break
-        case 'speaking':
-          setState('speaking')
-          break
-        case 'error':
-          setState('idle')
-          break
-      }
+    onStateChange: (newRealtimeState: RealtimeState) => {
+      // Solo guardar el estado, los logs se muestran en el useEffect de determinación
+      setRealtimeState(newRealtimeState)
     },
   })
 
@@ -71,6 +47,50 @@ function HomePage() {
     sampleRate: 24000,
   })
 
+  // Determinar estado visual basándose en audio y realtime state
+  useEffect(() => {
+    // No cambiar el estado si aún está inactive
+    if (!hasActivatedRef.current) {
+      return
+    }
+
+    let newState: AssistantState = state;
+
+    // Lógica de determinación de estado con umbral dual:
+    // 1. Usuario hablando FUERTE (interrumpir al asistente)
+    if (microphone.audioLevel > LISTENING_THRESHOLD_HIGH) {
+      newState = 'listening';
+    }
+    // 2. Asistente hablando (evita feedback loop del micrófono)
+    else if (realtime.outputAudioLevel > SPEAKING_THRESHOLD) {
+      newState = 'speaking';
+    }
+    // 3. Usuario hablando SUAVE (sin asistente)
+    else if (microphone.audioLevel > LISTENING_THRESHOLD_LOW) {
+      newState = 'listening';
+    }
+    // 4. Silencio
+    else {
+      newState = 'idle';
+    }
+
+    // Solo actualizar y loguear si el estado realmente cambió
+    if (newState !== state) {
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('🔄 [STATE CHANGE]', prevStateRef.current, '→', newState);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('📊 Context:');
+      console.log('  - realtimeState:', realtimeState);
+      console.log('  - microphone.audioLevel:', microphone.audioLevel);
+      console.log('  - realtime.outputAudioLevel:', realtime.outputAudioLevel);
+      console.log('  - hasActivatedRef:', hasActivatedRef.current);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      prevStateRef.current = newState;
+      setState(newState);
+    }
+  }, [microphone.audioLevel, realtimeState, state, realtime.outputAudioLevel])
+
   // Limpiar al desmontar
   useEffect(() => {
     return () => {
@@ -82,24 +102,11 @@ function HomePage() {
   }, [])
 
   const activateAssistant = async () => {
-    console.log('🔔 activateAssistant called, current state:', state)
-
     if (state === 'inactive') {
-      console.log('▶️ Activating assistant...')
-
       try {
-        // Marcar que el asistente ha sido activado
         hasActivatedRef.current = true
-
-        // Conectar a OpenAI Realtime API
-        console.log('📡 Connecting to OpenAI Realtime...')
         await realtime.connect()
-        console.log('✅ Connected to Realtime API')
-
-        // Iniciar stream de micrófono
         await microphone.startStreaming()
-        console.log('✅ Microphone stream started')
-
         setState('idle')
         setIsActive(true)
       } catch (err) {
@@ -107,10 +114,8 @@ function HomePage() {
         alert('Error al iniciar el asistente: ' + (err instanceof Error ? err.message : 'Unknown error'))
         setState('inactive')
         setIsActive(false)
-        hasActivatedRef.current = false // Reset en caso de error
+        hasActivatedRef.current = false
       }
-    } else {
-      console.log('⚠️ Cannot activate: state is not inactive (current state:', state, ')')
     }
   }
 
@@ -121,9 +126,7 @@ function HomePage() {
     ? realtime.outputAudioLevel
     : 0;
 
-  // Log de estado actual en cada render
   const onClickHandler = state === 'inactive' ? activateAssistant : undefined;
-  console.log('🎨 Rendering HomePage - state:', state, 'isActive:', isActive, 'onClick:', onClickHandler ? 'defined' : 'undefined');
 
   return (
     <div className="home-page">
