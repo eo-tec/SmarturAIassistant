@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMicrophoneStream } from '../hooks/useMicrophoneStream'
 import { useOpenAIRealtime, type RealtimeState } from '../hooks/useOpenAIRealtime'
 import { VoiceOrb } from '../components/VoiceOrb'
@@ -18,6 +19,10 @@ function HomePage() {
   const realtimeRef = useRef<any>(null)
   const hasActivatedRef = useRef(false) // Track si el asistente ha sido activado
   const prevStateRef = useRef<AssistantState>('inactive') // Track previous state for logging
+
+  // Leer parámetro returnTo de la URL
+  const [searchParams] = useSearchParams()
+  const returnTo = searchParams.get('returnTo')
 
   // Hook de OpenAI Realtime API
   const realtime = useOpenAIRealtime({
@@ -127,8 +132,25 @@ function HomePage() {
 
   const onClickHandler = state === 'inactive' ? activateAssistant : undefined;
 
+  // Handler para volver a la página anterior
+  const handleBackClick = () => {
+    if (returnTo) {
+      // Asegurarse de que la URL tenga protocolo
+      let url = returnTo
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url
+      }
+      window.location.href = url
+    }
+  }
+
   return (
     <div className="home-page">
+      {returnTo && (
+        <button className="back-button" onClick={handleBackClick} aria-label="Volver">
+          ← Volver
+        </button>
+      )}
       <div
         className={`orb-container ${state === 'inactive' ? 'inactive' : ''}`}
         onClick={onClickHandler}
