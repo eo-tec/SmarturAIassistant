@@ -8,6 +8,12 @@ interface VoiceOrbProps {
 export const VoiceOrb = ({ mode, audioLevel = 0 }: VoiceOrbProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | undefined>(undefined);
+  const audioLevelRef = useRef<number>(audioLevel);
+
+  // Sync audioLevel prop to ref without restarting animation
+  useEffect(() => {
+    audioLevelRef.current = audioLevel;
+  }, [audioLevel]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -39,16 +45,15 @@ export const VoiceOrb = ({ mode, audioLevel = 0 }: VoiceOrbProps) => {
       let colorIntensity = 0;
 
       if (mode === "listening") {
-        // Constant animation - not audio reactive
-        // Gentle pulse for listening mode
-        audioScale = Math.sin(time * 2) * 0.1;
+        // Scale is audio reactive, but waves are constant
+        audioScale = audioLevelRef.current * 0.8;
         targetScale = 1 + audioScale;
         // Constant color intensity
         colorIntensity = 0.5;
         points = 64;
       } else if (mode === "speaking") {
-        // Constant animation for speaking mode
-        audioScale = Math.sin(time * 3) * 0.12;
+        // Scale is audio reactive, but waves are constant
+        audioScale = audioLevelRef.current * 0.6;
         targetScale = 1 + audioScale + Math.sin(time * 8) * 0.08;
         colorIntensity = 0.7;
         points = 80;
@@ -172,7 +177,7 @@ export const VoiceOrb = ({ mode, audioLevel = 0 }: VoiceOrbProps) => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [mode, audioLevel]);
+  }, [mode]); // Only mode as dependency - audioLevel changes don't restart animation
 
   return (
     <div className="relative flex items-center justify-center">

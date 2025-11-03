@@ -118,8 +118,12 @@ function HomePage() {
     }
   }
 
-  // Audio level is now constant (not reactive to voice)
-  const audioLevel = 0;
+  // Audio level reactive to voice for size, but waves remain constant
+  const audioLevel = state === 'listening'
+    ? microphone.audioLevel
+    : state === 'speaking'
+    ? realtime.outputAudioLevel
+    : 0;
 
   const onClickHandler = state === 'inactive' ? activateAssistant : undefined;
 
