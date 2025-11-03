@@ -147,7 +147,7 @@ export class AudioPlayer {
   private audioLevel: number = 0;
   private animationFrameId: number | null = null;
   private endTimeout: number | null = null;
-  private readonly END_TIMEOUT_MS = 2000; // Grace period before calling onPlaybackEnd (allows for natural pauses)
+  private readonly END_TIMEOUT_MS = 800; // Grace period before calling onPlaybackEnd (allows for natural pauses, reduced for faster response)
 
   constructor(sampleRate: number = 24000) {
     this.audioContext = new AudioContext({ sampleRate });
@@ -159,7 +159,7 @@ export class AudioPlayer {
     // Crear nodos para análisis de audio
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 256;
-    this.analyser.smoothingTimeConstant = 0.8;
+    this.analyser.smoothingTimeConstant = 0.3; // Reduced for faster response (~300ms instead of ~2s)
 
     this.gainNode = this.audioContext.createGain();
     this.gainNode.gain.value = 1.0;

@@ -73,18 +73,21 @@ export const useOpenAIRealtime = (
     };
   }, []);
 
-  // Update output audio level continuously
+  // Update output audio level continuously using requestAnimationFrame for better performance
   useEffect(() => {
+    let rafId: number;
+
     const updateAudioLevel = () => {
       if (audioPlayerRef.current) {
         setOutputAudioLevel(audioPlayerRef.current.getAudioLevel());
       }
+      rafId = requestAnimationFrame(updateAudioLevel);
     };
 
-    const intervalId = setInterval(updateAudioLevel, 50); // Update every 50ms
+    updateAudioLevel(); // Start the loop
 
     return () => {
-      clearInterval(intervalId);
+      cancelAnimationFrame(rafId);
     };
   }, []);
 
