@@ -147,7 +147,7 @@ export class AudioPlayer {
   private audioLevel: number = 0;
   private animationFrameId: number | null = null;
   private endTimeout: number | null = null;
-  private readonly END_TIMEOUT_MS = 500; // Grace period before calling onPlaybackEnd
+  private readonly END_TIMEOUT_MS = 2000; // Grace period before calling onPlaybackEnd (allows for natural pauses)
 
   constructor(sampleRate: number = 24000) {
     this.audioContext = new AudioContext({ sampleRate });

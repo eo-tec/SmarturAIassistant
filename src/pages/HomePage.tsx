@@ -10,7 +10,6 @@ type AssistantState = 'inactive' | 'idle' | 'listening' | 'speaking'
 // Umbrales para detección de audio
 const LISTENING_THRESHOLD_LOW = 0.01;   // Umbral normal para detectar voz del usuario
 const LISTENING_THRESHOLD_HIGH = 0.05;  // Umbral alto para interrumpir al asistente
-const SPEAKING_THRESHOLD = 0.01;        // Umbral para detectar audio de salida
 
 function HomePage() {
   const [state, setState] = useState<AssistantState>('inactive')
@@ -61,8 +60,8 @@ function HomePage() {
     if (microphone.audioLevel > LISTENING_THRESHOLD_HIGH) {
       newState = 'listening';
     }
-    // 2. Asistente hablando (evita feedback loop del micrófono)
-    else if (realtime.outputAudioLevel > SPEAKING_THRESHOLD) {
+    // 2. Asistente hablando (confiamos en el estado de OpenAI Realtime)
+    else if (realtimeState === 'speaking') {
       newState = 'speaking';
     }
     // 3. Usuario hablando SUAVE (sin asistente)
@@ -89,7 +88,7 @@ function HomePage() {
       prevStateRef.current = newState;
       setState(newState);
     }
-  }, [microphone.audioLevel, realtimeState, state, realtime.outputAudioLevel])
+  }, [microphone.audioLevel, realtimeState, state])
 
   // Limpiar al desmontar
   useEffect(() => {
@@ -119,12 +118,8 @@ function HomePage() {
     }
   }
 
-  // Determinar qué nivel de audio usar según el estado
-  const audioLevel = state === 'listening'
-    ? microphone.audioLevel
-    : state === 'speaking'
-    ? realtime.outputAudioLevel
-    : 0;
+  // Audio level is now constant (not reactive to voice)
+  const audioLevel = 0;
 
   const onClickHandler = state === 'inactive' ? activateAssistant : undefined;
 

@@ -39,18 +39,18 @@ export const VoiceOrb = ({ mode, audioLevel = 0 }: VoiceOrbProps) => {
       let colorIntensity = 0;
 
       if (mode === "listening") {
-        // Audio reactive mode - uniform scaling based on audioLevel prop
-        // Exaggerated uniform scaling
-        audioScale = audioLevel * 0.8;
+        // Constant animation - not audio reactive
+        // Gentle pulse for listening mode
+        audioScale = Math.sin(time * 2) * 0.1;
         targetScale = 1 + audioScale;
-        // Color intensity based on volume
-        colorIntensity = audioLevel;
+        // Constant color intensity
+        colorIntensity = 0.5;
         points = 64;
       } else if (mode === "speaking") {
-        // Speaking animation - audio reactive
-        audioScale = audioLevel * 0.6;
+        // Constant animation for speaking mode
+        audioScale = Math.sin(time * 3) * 0.12;
         targetScale = 1 + audioScale + Math.sin(time * 8) * 0.08;
-        colorIntensity = 0.6 + audioLevel * 0.4;
+        colorIntensity = 0.7;
         points = 80;
       } else if (mode === "inactive") {
         // Inactive animation - very subtle, gray
@@ -71,11 +71,11 @@ export const VoiceOrb = ({ mode, audioLevel = 0 }: VoiceOrbProps) => {
         
         let noise = 0;
         if (mode === "listening") {
-          // Uniform subtle wave for organic look
-          noise = Math.sin(angle * 4 + time * 4) * (3 + audioLevel * 2);
+          // Constant wave animation for organic look
+          noise = Math.sin(angle * 4 + time * 4) * 5;
         } else if (mode === "speaking") {
-          // Speaking - stable with minimal distortion, audio reactive
-          noise = Math.sin(angle * 5 + time * 8) * (3 + audioLevel * 2);
+          // Constant wave with more frequency for speaking
+          noise = Math.sin(angle * 5 + time * 8) * 5;
         }
         // Idle and inactive have no noise (noise = 0) for perfect circle
         
