@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMicrophoneStream } from '../hooks/useMicrophoneStream'
 import { useOpenAIRealtime, type RealtimeState } from '../hooks/useOpenAIRealtime'
@@ -19,6 +19,8 @@ function HomePage() {
   const realtimeRef = useRef<any>(null)
   const hasActivatedRef = useRef(false) // Track si el asistente ha sido activado
   const prevStateRef = useRef<AssistantState>('inactive') // Track previous state for logging
+  const inactivityTimeoutRef = useRef<NodeJS.Timeout | null>(null) // Timeout para inactividad
+  const lastActivityTimeRef = useRef<number>(Date.now()) // Timestamp de última actividad (habla)
 
   // Leer parámetro returnTo de la URL
   const [searchParams] = useSearchParams()
@@ -78,18 +80,8 @@ function HomePage() {
       newState = 'idle';
     }
 
-    // Solo actualizar y loguear si el estado realmente cambió
+    // Solo actualizar si el estado realmente cambió
     if (newState !== state) {
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('🔄 [STATE CHANGE]', prevStateRef.current, '→', newState);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('📊 Context:');
-      console.log('  - realtimeState:', realtimeState);
-      console.log('  - microphone.audioLevel:', microphone.audioLevel);
-      console.log('  - realtime.outputAudioLevel:', realtime.outputAudioLevel);
-      console.log('  - hasActivatedRef:', hasActivatedRef.current);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
       prevStateRef.current = newState;
       setState(newState);
     }
@@ -109,6 +101,7 @@ function HomePage() {
     if (state === 'inactive') {
       try {
         hasActivatedRef.current = true
+        lastActivityTimeRef.current = Date.now() // Resetear timestamp al activar
         await realtime.connect()
         await microphone.startStreaming()
         setState('idle')
@@ -123,6 +116,74 @@ function HomePage() {
     }
   }
 
+  const deactivateAssistant = useCallback(() => {
+    if (isActive) {
+      microphone.stopStreaming()
+      realtime.disconnect()
+      setState('inactive')
+      setIsActive(false)
+      hasActivatedRef.current = false
+    }
+  }, [isActive, microphone, realtime])
+
+  // Timeout de inactividad - desconectar después de 30 segundos sin actividad
+  useEffect(() => {
+    // Solo activar el timeout si el asistente está activo
+    if (!isActive) {
+      return
+    }
+
+    // Limpiar timeout anterior si existe
+    if (inactivityTimeoutRef.current) {
+      clearTimeout(inactivityTimeoutRef.current)
+    }
+
+    // Si el asistente está hablando o el usuario está hablando, reiniciar el timeout
+    if (state === 'speaking' || state === 'listening') {
+      inactivityTimeoutRef.current = setTimeout(() => {
+        console.log('⏱️ Timeout de inactividad alcanzado (30s), desconectando asistente...')
+        deactivateAssistant()
+      }, 30000) // 30 segundos
+    }
+    // Si está en idle, también mantener el timeout pero con mensaje diferente
+    else if (state === 'idle') {
+      inactivityTimeoutRef.current = setTimeout(() => {
+        console.log('⏱️ Sin respuesta del asistente en 30 segundos, desconectando...')
+        deactivateAssistant()
+      }, 30000) // 30 segundos
+    }
+
+    // Limpiar timeout cuando el componente se desmonte o cambie el estado
+    return () => {
+      if (inactivityTimeoutRef.current) {
+        clearTimeout(inactivityTimeoutRef.current)
+      }
+    }
+  }, [state, isActive, deactivateAssistant])
+
+  // Actualizar timestamp solo cuando el asistente habla
+  useEffect(() => {
+    if (state === 'speaking') {
+      lastActivityTimeRef.current = Date.now()
+    }
+  }, [state])
+
+  // Log cada 5 segundos mostrando tiempo sin hablar (solo cuando está idle y activo)
+  useEffect(() => {
+    if (!isActive || state !== 'idle') {
+      return
+    }
+
+    const intervalId = setInterval(() => {
+      const secondsSinceActivity = Math.floor((Date.now() - lastActivityTimeRef.current) / 1000)
+      console.log(`⏱️ Llevas ${secondsSinceActivity} segundos sin hablar`)
+    }, 5000) // Cada 5 segundos
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [state, isActive])
+
   // Audio level reactive to voice for size, but waves remain constant
   const audioLevel = state === 'listening'
     ? microphone.audioLevel
@@ -130,7 +191,7 @@ function HomePage() {
     ? realtime.outputAudioLevel
     : 0;
 
-  const onClickHandler = state === 'inactive' ? activateAssistant : undefined;
+  const onClickHandler = state === 'inactive' ? activateAssistant : deactivateAssistant;
 
   // Handler para volver a la página anterior
   const handleBackClick = () => {
@@ -148,7 +209,8 @@ function HomePage() {
     <div className="home-page">
       {returnTo && (
         <button className="back-button" onClick={handleBackClick} aria-label="Volver">
-          ← Volver
+          <span className="back-arrow">←</span>
+          <span>Volver</span>
         </button>
       )}
       <div
@@ -162,11 +224,12 @@ function HomePage() {
         />
       </div>
 
-      {state === 'inactive' && (
-        <button className="start-button" onClick={activateAssistant}>
-          Haz click aquí para empezar
-        </button>
-      )}
+      <button
+        className={`start-button ${state !== 'inactive' ? 'stop-mode' : ''}`}
+        onClick={onClickHandler}
+      >
+        {state === 'inactive' ? 'Haz click aquí para empezar' : 'STOP'}
+      </button>
     </div>
   )
 }
