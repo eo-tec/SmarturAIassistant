@@ -1,16 +1,17 @@
-// WebSocket relay server for OpenAI Realtime API
-// Este servidor actúa como intermediario entre el cliente (navegador) y OpenAI
-// Mantiene la API key segura en el servidor y relay mensajes bidireccionales
+// Token server for OpenAI Realtime API (WebRTC)
+// Este servidor genera tokens efímeros para que el cliente se conecte directamente a OpenAI
 
 const express = require('express');
-const path = require('path');
-const { WebSocketServer } = require('ws');
-const WebSocket = require('ws');
+const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Middleware
+app.use(cors());
+app.use(express.json());
 
 // Verificar que tenemos API key
 if (!process.env.OPENAI_API_KEY) {
@@ -19,235 +20,122 @@ if (!process.env.OPENAI_API_KEY) {
   process.exit(1);
 }
 
+// Instrucciones del hotel (se envían al crear la sesión)
+const HOTEL_INSTRUCTIONS = `Eres la recepcionista (Te llamas María) del Hotel SMARTUR, un hotel de lujo en Santiago de Compostela, Galicia, España.
+
+# Rol y Objetivo
+- Atender huéspedes con educación, profesionalidad y discreción
+- Ofrecer información sobre el hotel, servicios y entorno local
+
+# Personalidad y Tono
+- Cálida, concisa, profesional
+- NUNCA aduladora ni exagerada
+
+# Longitud de Respuestas
+- MÁXIMO 2-3 oraciones por turno
+- Respuestas breves y directas
+
+# Idioma
+- SOLO responder en español
+- Si el usuario habla otro idioma, indicar amablemente que solo hay soporte en español
+
+# Variedad
+- NO repetir las mismas frases
+- Variar las respuestas para no sonar robótico
+
+# Reglas de Reservas
+- Si el huésped pide "revisar el sistema" por una reserva, confirma directamente que está realizada
+- NUNCA decir "déjame revisar" o "un momento" - responder de inmediato
+
+# RESTAURANTES (alta calidad, imprescindible reservar)
+- Casa Marcelo: Cocina creativa contemporánea, ideal para una noche especial
+- A Tafona: Alta cocina gallega actual, muy apreciada por clientes gastronómicos
+- Abastos 2.0: Experiencia gastronómica vinculada al Mercado de Abastos, perfecta para comida
+
+# ACTIVIDADES DESTACADAS
+- Catedral de Santiago y Plaza del Obradoiro: Visita imprescindible, recomendable al atardecer
+- Visita guiada privada por el casco histórico: Dos a tres horas, optimiza tiempo
+- Excursión de día a Finisterre y Costa da Morte: Naturaleza atlántica, paisajes emblemáticos
+
+# CONSEJOS
+- Aconsejar reserva anticipada en restaurantes
+- Ofrecer visitas privadas para experiencia exclusiva
+- Responder SOLO con estas recomendaciones, sin añadir otras salvo que el cliente lo solicite`;
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'OpenAI Realtime API Relay Server',
-    model: 'gpt-realtime-2025-08-28',
-    version: '1.0.0'
+    message: 'OpenAI Realtime Token Server (WebRTC)',
+    model: 'gpt-4o-realtime-preview-2024-12-17',
+    version: '2.0.0'
   });
 });
 
-// Servir frontend estático en producción
-if (NODE_ENV === 'production') {
-  const distPath = path.join(__dirname, 'dist');
-  console.log('📂 Serving static files from:', distPath);
-  app.use(express.static(distPath));
+// Endpoint para obtener token efímero y configuración de sesión
+app.post('/session', async (req, res) => {
+  console.log('🔑 Generating ephemeral token...');
 
-  // SPA fallback
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
-}
-
-// Crear servidor HTTP
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Relay Server running on http://localhost:${PORT}`);
-  console.log(`🤖 Model: gpt-realtime-2025-08-28`);
-  console.log(`🔑 API Key configured: Yes`);
-  console.log(`🌍 Environment: ${NODE_ENV}`);
-});
-
-// Crear WebSocket server
-const wss = new WebSocketServer({ server });
-
-console.log('🔌 WebSocket server ready');
-
-// Manejar conexiones de clientes
-wss.on('connection', (clientWs) => {
-  console.log('👤 Client connected');
-
-  let openaiWs = null;
-  let isAlive = true;
-
-  // Conectar a OpenAI Realtime API
   try {
-    const model = 'gpt-realtime-2025-08-28';
-    const url = `wss://api.openai.com/v1/realtime?model=${model}`;
-
-    console.log('🔌 Connecting to OpenAI Realtime API...');
-    console.log('📝 URL:', url);
-
-    openaiWs = new WebSocket(url, {
+    const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'OpenAI-Beta': 'realtime=v1'
-      }
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-realtime-preview-2024-12-17',
+        voice: 'coral',
+        instructions: HOTEL_INSTRUCTIONS,
+        input_audio_format: 'pcm16',
+        output_audio_format: 'pcm16',
+        input_audio_transcription: {
+          model: 'whisper-1',
+        },
+        turn_detection: {
+          type: 'server_vad',
+          threshold: 0.6,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 600,
+        },
+        temperature: 0.7,
+      }),
     });
 
-    // Cuando OpenAI se conecta
-    openaiWs.on('open', () => {
-      console.log('✅ Connected to OpenAI Realtime API');
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('❌ OpenAI API error:', error);
+      return res.status(response.status).json({ error: 'Failed to create session' });
+    }
 
-      // Notificar al cliente que estamos conectados al relay
-      clientWs.send(JSON.stringify({
-        type: 'relay.connected',
-        timestamp: Date.now()
-      }));
-    });
+    const data = await response.json();
+    console.log('✅ Ephemeral token generated');
+    console.log('  - Session ID:', data.id);
+    console.log('  - Model:', data.model);
+    console.log('  - Expires:', new Date(data.expires_at * 1000).toISOString());
 
-    // Relay mensajes de OpenAI -> Cliente
-    openaiWs.on('message', (data) => {
-      try {
-        const message = data.toString();
-
-        // Log solo los tipos de eventos, no el contenido completo
-        try {
-          const parsed = JSON.parse(message);
-          console.log('📥 OpenAI → Client:', parsed.type);
-        } catch (e) {
-          console.log('📥 OpenAI → Client: [binary data]');
-        }
-
-        // Reenviar al cliente
-        if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(message);
-        }
-      } catch (err) {
-        console.error('❌ Error relaying OpenAI message:', err);
-      }
-    });
-
-    // Errores de OpenAI
-    openaiWs.on('error', (error) => {
-      console.error('❌ OpenAI WebSocket error:', error);
-
-      // Notificar al cliente
-      if (clientWs.readyState === WebSocket.OPEN) {
-        clientWs.send(JSON.stringify({
-          type: 'error',
-          error: {
-            message: 'OpenAI connection error',
-            details: error.message
-          }
-        }));
-      }
-    });
-
-    // Cuando OpenAI cierra la conexión
-    openaiWs.on('close', (code, reason) => {
-      console.log('🔌 OpenAI connection closed:', code, reason.toString());
-
-      // Cerrar conexión del cliente también
-      if (clientWs.readyState === WebSocket.OPEN) {
-        clientWs.close(1000, 'OpenAI connection closed');
-      }
-    });
-
+    res.json(data);
   } catch (err) {
-    console.error('❌ Error connecting to OpenAI:', err);
-
-    clientWs.send(JSON.stringify({
-      type: 'error',
-      error: {
-        message: 'Failed to connect to OpenAI',
-        details: err.message
-      }
-    }));
-
-    clientWs.close(1011, 'Internal server error');
-    return;
+    console.error('❌ Error generating token:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-
-  // Relay mensajes de Cliente -> OpenAI
-  clientWs.on('message', (data) => {
-    try {
-      const message = data.toString();
-
-      // Log solo los tipos de eventos
-      try {
-        const parsed = JSON.parse(message);
-        console.log('📤 Client → OpenAI:', parsed.type);
-
-        // Log detallado para session.update y conversation.item.create (debug)
-        if (parsed.type === 'session.update') {
-          console.log('🔍 Session update details:');
-          console.log('  - Instructions length:', parsed.session?.instructions?.length || 0);
-          console.log('  - Instructions preview:', parsed.session?.instructions?.substring(0, 80) + '...');
-          console.log('  - Voice:', parsed.session?.voice);
-          console.log('  - Modalities:', parsed.session?.modalities);
-        } else if (parsed.type === 'conversation.item.create') {
-          console.log('🔍 Conversation item details:');
-          console.log('  - Role:', parsed.item?.role);
-          console.log('  - Content type:', parsed.item?.content?.[0]?.type);
-          console.log('  - Text length:', parsed.item?.content?.[0]?.text?.length || 0);
-          console.log('  - Text preview:', parsed.item?.content?.[0]?.text?.substring(0, 80) + '...');
-        }
-      } catch (e) {
-        console.log('📤 Client → OpenAI: [binary data]');
-      }
-
-      // Reenviar a OpenAI
-      if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
-        openaiWs.send(message);
-      } else {
-        console.warn('⚠️ OpenAI WebSocket not ready, dropping message');
-      }
-    } catch (err) {
-      console.error('❌ Error relaying client message:', err);
-    }
-  });
-
-  // Heartbeat para detectar conexiones muertas
-  clientWs.on('pong', () => {
-    isAlive = true;
-  });
-
-  // Cuando el cliente se desconecta
-  clientWs.on('close', (code, reason) => {
-    console.log('👤 Client disconnected:', code, reason.toString());
-
-    // Cerrar conexión a OpenAI
-    if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
-      openaiWs.close(1000, 'Client disconnected');
-    }
-  });
-
-  // Error del cliente
-  clientWs.on('error', (error) => {
-    console.error('❌ Client WebSocket error:', error);
-  });
-
-  // Verificar conexión viva cada 30 segundos
-  const heartbeatInterval = setInterval(() => {
-    if (!isAlive) {
-      console.log('💀 Client connection timeout, terminating...');
-      clearInterval(heartbeatInterval);
-      clientWs.terminate();
-      if (openaiWs) {
-        openaiWs.close(1000, 'Client timeout');
-      }
-      return;
-    }
-
-    isAlive = false;
-    clientWs.ping();
-  }, 30000);
-
-  // Limpiar al desconectar
-  clientWs.on('close', () => {
-    clearInterval(heartbeatInterval);
-  });
 });
 
-// Manejar cierre del servidor
-process.on('SIGTERM', () => {
-  console.log('⚠️ SIGTERM received, closing server...');
-  wss.close(() => {
-    server.close(() => {
-      console.log('✅ Server closed');
-      process.exit(0);
-    });
-  });
+// GET endpoint para compatibilidad
+app.get('/session', async (req, res) => {
+  // Redirigir a POST
+  req.method = 'POST';
+  return app._router.handle(req, res);
 });
 
-process.on('SIGINT', () => {
-  console.log('⚠️ SIGINT received, closing server...');
-  wss.close(() => {
-    server.close(() => {
-      console.log('✅ Server closed');
-      process.exit(0);
-    });
-  });
+// Iniciar servidor
+app.listen(PORT, () => {
+  console.log(`🚀 Token Server running on http://localhost:${PORT}`);
+  console.log(`🎯 Model: gpt-4o-realtime-preview-2024-12-17`);
+  console.log(`🔑 API Key configured: Yes`);
+  console.log(`🌍 Environment: ${NODE_ENV}`);
+  console.log('');
+  console.log('📡 Endpoints:');
+  console.log(`   GET/POST /session - Get ephemeral token for WebRTC`);
+  console.log(`   GET /health - Health check`);
 });
