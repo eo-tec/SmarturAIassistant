@@ -1,5 +1,20 @@
 # Migración a OpenAI Realtime API
 
+> **⚠️ NOTA (actualizado a la API GA de OpenAI):** Este documento describe una migración
+> histórica a la arquitectura **WebSocket relay**. La arquitectura **actual** del asistente
+> usado en producción (botón del hotel en `smartur-front` → `/hotel/assistant`) es **WebRTC
+> con tokens efímeros**:
+> - El servidor (`server/relay-server.js`) genera el token efímero con
+>   `POST https://api.openai.com/v1/realtime/client_secrets` (el antiguo
+>   `/v1/realtime/sessions` fue retirado y devuelve `Invalid URL`).
+> - El cliente (`useOpenAIWebRTC.ts`) lee el token de `data.value` y negocia el SDP contra
+>   `POST https://api.openai.com/v1/realtime/calls` (sin `?model=`; el modelo se fija en el
+>   token, server-side).
+> - Modelo por defecto: **`gpt-realtime`** (configurable con `REALTIME_MODEL`). El antiguo
+>   `gpt-4o-realtime-preview-2024-12-17` fue retirado el 2026-05-07.
+> - Eventos GA del data channel: `response.output_audio.delta`, `response.output_audio.done`,
+>   `response.output_audio_transcript.*` (antes `response.audio.*`).
+
 Este proyecto ha sido migrado de **Chat Completions API** (HTTP) a **Realtime API** (WebSocket) para aprovechar las ventajas de baja latencia y comunicación bidireccional en tiempo real.
 
 ## Cambios principales

@@ -62,61 +62,86 @@ const HOTEL_INSTRUCTIONS = `Eres la recepcionista (Te llamas María) del Hotel S
 - Ofrecer visitas privadas para experiencia exclusiva
 - Responder SOLO con estas recomendaciones, sin añadir otras salvo que el cliente lo solicite`;
 
+// Modelo Realtime GA (reemplaza a gpt-4o-realtime-preview-2024-12-17, retirado el 2026-05-07).
+// Alternativas válidas: 'gpt-realtime-mini' (coste-eficiente) o 'gpt-realtime-2' (razonamiento).
+const REALTIME_MODEL = process.env.REALTIME_MODEL || 'gpt-realtime';
+// Voces: alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar.
+// 'marin' o 'cedar' recomendadas por OpenAI para mejor calidad de audio.
+const REALTIME_VOICE = process.env.REALTIME_VOICE || 'coral';
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'OpenAI Realtime Token Server (WebRTC)',
-    model: 'gpt-4o-realtime-preview-2024-12-17',
-    version: '2.0.0'
+    message: 'OpenAI Realtime Token Server (WebRTC GA)',
+    model: REALTIME_MODEL,
+    version: '3.0.0'
   });
 });
 
-// Endpoint para obtener token efímero y configuración de sesión
+// Endpoint para obtener token efímero (client secret) — API GA.
+// Crea el secreto con POST /v1/realtime/client_secrets (el antiguo
+// /v1/realtime/sessions ya no existe y devuelve "Invalid URL").
 app.post('/session', async (req, res) => {
-  console.log('🔑 Generating ephemeral token...');
+  console.log('🔑 Generating ephemeral client secret...');
 
   try {
-    const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+    // Estructura GA: la config va envuelta en "session" (type:'realtime'),
+    // el audio anidado bajo session.audio.input / session.audio.output,
+    // y "expires_after" como hermano opcional de "session".
+    const sessionConfig = {
+      expires_after: { anchor: 'created_at', seconds: 600 },
+      session: {
+        type: 'realtime',
+        model: REALTIME_MODEL,
+        instructions: HOTEL_INSTRUCTIONS,
+        output_modalities: ['audio'],
+        audio: {
+          input: {
+            format: { type: 'audio/pcm', rate: 24000 },
+            transcription: { model: 'whisper-1' },
+            turn_detection: {
+              type: 'server_vad',
+              threshold: 0.6,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 600,
+            },
+          },
+          output: {
+            format: { type: 'audio/pcm', rate: 24000 },
+            voice: REALTIME_VOICE,
+          },
+        },
+      },
+    };
+
+    const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview-2024-12-17',
-        voice: 'coral',
-        instructions: HOTEL_INSTRUCTIONS,
-        input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
-        input_audio_transcription: {
-          model: 'whisper-1',
-        },
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.6,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 600,
-        },
-        temperature: 0.7,
-      }),
+      body: JSON.stringify(sessionConfig),
     });
 
     if (!response.ok) {
       const error = await response.text();
       console.error('❌ OpenAI API error:', error);
-      return res.status(response.status).json({ error: 'Failed to create session' });
+      return res.status(response.status).json({ error: 'Failed to create client secret', details: error });
     }
 
+    // Respuesta GA: { value: "ek_...", expires_at: <epoch_s>, session: {...} }
+    // El token efímero está en data.value (NO en data.client_secret.value).
     const data = await response.json();
-    console.log('✅ Ephemeral token generated');
-    console.log('  - Session ID:', data.id);
-    console.log('  - Model:', data.model);
-    console.log('  - Expires:', new Date(data.expires_at * 1000).toISOString());
+    console.log('✅ Ephemeral client secret generated');
+    console.log('  - Session ID:', data.session?.id);
+    console.log('  - Model:', data.session?.model);
+    console.log('  - Expires:', data.expires_at ? new Date(data.expires_at * 1000).toISOString() : 'n/a');
 
+    // Reenviar la respuesta tal cual al cliente; el navegador leerá data.value.
     res.json(data);
   } catch (err) {
-    console.error('❌ Error generating token:', err);
+    console.error('❌ Error generating client secret:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -131,7 +156,7 @@ app.get('/session', async (req, res) => {
 // Iniciar servidor
 app.listen(PORT, () => {
   console.log(`🚀 Token Server running on http://localhost:${PORT}`);
-  console.log(`🎯 Model: gpt-4o-realtime-preview-2024-12-17`);
+  console.log(`🎯 Model: ${REALTIME_MODEL}`);
   console.log(`🔑 API Key configured: Yes`);
   console.log(`🌍 Environment: ${NODE_ENV}`);
   console.log('');
