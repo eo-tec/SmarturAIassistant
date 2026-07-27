@@ -69,14 +69,110 @@ const REALTIME_MODEL = process.env.REALTIME_MODEL || 'gpt-realtime';
 // 'marin' o 'cedar' recomendadas por OpenAI para mejor calidad de audio.
 const REALTIME_VOICE = process.env.REALTIME_VOICE || 'coral';
 
+// ---------------------------------------------------------------------------
+// Keepalive de Supabase
+// El plan Free pausa el proyecto tras ~7 días de inactividad, y las consultas
+// que van por conexión directa a Postgres no cuentan para ese contador: solo
+// cuenta el tráfico contra la API (PostgREST). Un GET periódico a una tabla
+// dedicada mantiene el proyecto despierto.
+// ---------------------------------------------------------------------------
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const KEEPALIVE_TABLE = process.env.SUPABASE_KEEPALIVE_TABLE || 'keepalive';
+const KEEPALIVE_INTERVAL_HOURS = Number(process.env.SUPABASE_KEEPALIVE_INTERVAL_HOURS) || 24;
+const KEEPALIVE_ENABLED = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+const KEEPALIVE_RETRY_DELAY_MS = 10 * 60 * 1000;
+const KEEPALIVE_MAX_ATTEMPTS = 3;
+
+// Estado del último ping, expuesto en /health para comprobarlo de un vistazo
+let lastKeepalive = { ok: null, status: null, at: null, error: null };
+
+async function pingSupabase() {
+  const url = `${SUPABASE_URL}/rest/v1/${KEEPALIVE_TABLE}?select=*&limit=1`;
+  console.log('🔄 Supabase keepalive: ping...');
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      throw new Error(`HTTP ${response.status} — ${details.slice(0, 200)}`);
+    }
+
+    lastKeepalive = { ok: true, status: response.status, at: new Date().toISOString(), error: null };
+    console.log(`✅ Supabase keepalive OK (HTTP ${response.status})`);
+  } catch (err) {
+    const message = err.name === 'TimeoutError' ? 'timeout (10s)' : err.message;
+    lastKeepalive = { ok: false, status: null, at: new Date().toISOString(), error: message };
+    console.error(`❌ Supabase keepalive falló: ${message}`);
+  }
+
+  return lastKeepalive;
+}
+
+// Lanza un ping y, si falla, reintenta hasta KEEPALIVE_MAX_ATTEMPTS antes de
+// esperar al siguiente ciclo. No propaga errores: un rechazo sin capturar
+// tumbaría el contenedor.
+async function runKeepaliveCycle(attempt = 1) {
+  const result = await pingSupabase();
+
+  if (!result.ok && attempt < KEEPALIVE_MAX_ATTEMPTS) {
+    console.log(`↻ Reintento ${attempt + 1}/${KEEPALIVE_MAX_ATTEMPTS} en 10 min`);
+    setTimeout(() => {
+      runKeepaliveCycle(attempt + 1).catch(() => {});
+    }, KEEPALIVE_RETRY_DELAY_MS).unref();
+  }
+}
+
+function startKeepalive() {
+  if (!KEEPALIVE_ENABLED) {
+    console.warn('⚠️  Supabase keepalive desactivado (falta SUPABASE_URL o SUPABASE_ANON_KEY)');
+    return;
+  }
+
+  console.log(`💓 Supabase keepalive: tabla "${KEEPALIVE_TABLE}" cada ${KEEPALIVE_INTERVAL_HOURS}h`);
+
+  // Ping al arrancar: cubre el caso de reinicio del contenedor
+  runKeepaliveCycle().catch(() => {});
+  setInterval(() => {
+    runKeepaliveCycle().catch(() => {});
+  }, KEEPALIVE_INTERVAL_HOURS * 60 * 60 * 1000);
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     message: 'OpenAI Realtime Token Server (WebRTC GA)',
     model: REALTIME_MODEL,
-    version: '3.0.0'
+    version: '3.0.0',
+    supabaseKeepalive: {
+      enabled: KEEPALIVE_ENABLED,
+      table: KEEPALIVE_TABLE,
+      intervalHours: KEEPALIVE_INTERVAL_HOURS,
+      lastPing: lastKeepalive,
+    }
   });
+});
+
+// Ping manual a Supabase — para verificar la configuración tras desplegar
+// sin tener que esperar al siguiente ciclo.
+app.get('/keepalive', async (req, res) => {
+  if (!KEEPALIVE_ENABLED) {
+    return res.status(503).json({
+      enabled: false,
+      error: 'Keepalive desactivado: falta SUPABASE_URL o SUPABASE_ANON_KEY',
+    });
+  }
+
+  const result = await pingSupabase();
+  res.status(result.ok ? 200 : 502).json({ enabled: true, table: KEEPALIVE_TABLE, ...result });
 });
 
 // Endpoint para obtener token efímero (client secret) — API GA.
@@ -163,4 +259,8 @@ app.listen(PORT, () => {
   console.log('📡 Endpoints:');
   console.log(`   GET/POST /session - Get ephemeral token for WebRTC`);
   console.log(`   GET /health - Health check`);
+  console.log(`   GET /keepalive - Ping manual a Supabase`);
+  console.log('');
+
+  startKeepalive();
 });
